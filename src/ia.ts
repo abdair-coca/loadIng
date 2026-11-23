@@ -164,6 +164,76 @@ export async function interpretar(
   }));
 }
 
+/**
+ * Versión que usa la suscripción de Claude del usuario (solo dentro de claude.ai).
+ * No hay prompt de sistema: las instrucciones, el formato y las imágenes van en la llamada.
+ */
+export async function interpretarConSuscripcion(
+  sample: ClaudeCapabilityMap["sample"],
+  imagenes: Blob[],
+  unSoloDocumento: boolean,
+  precision: "default" | "complex",
+): Promise<RegistroIA[]> {
+  const pedido =
+    imagenes.length > 1 && unSoloDocumento
+      ? `Las ${imagenes.length} imágenes adjuntas son páginas de UN MISMO documento: devuelve un solo registro.`
+      : "La imagen adjunta es la foto de un documento.";
+  const prompt = `${SISTEMA}
+
+${pedido}
+
+Responde SOLO con un objeto JSON, sin texto adicional, con esta forma exacta:
+{"registros":[{"carrera":["LÍNEA 1","LÍNEA 2"],"n_dictamen":"...","descripcion":"...","revisar":false,"nota":""}]}`;
+
+  let datos: { registros?: unknown };
+  try {
+    datos = await sample.json<{ registros?: unknown }>(prompt, { images: imagenes, modelTier: precision });
+  } catch (e) {
+    throw new Error(mensajeSample(e));
+  }
+  if (!datos || !Array.isArray(datos.registros)) throw new Error("La IA respondió sin registros. Reintenta.");
+  return (datos.registros as Partial<RegistroIA>[]).map((r) => ({
+    carrera: Array.isArray(r.carrera) ? r.carrera.map(String) : r.carrera ? [String(r.carrera)] : [],
+    n_dictamen: String(r.n_dictamen ?? ""),
+    descripcion: String(r.descripcion ?? ""),
+    revisar: Boolean(r.revisar),
+    nota: String(r.nota ?? ""),
+  }));
+}
+
+/** Errores de la suscripción que deben pausar la cola (no tiene sentido seguir enviando). */
+export class ErrorPausa extends Error {}
+
+function mensajeSample(e: unknown): string {
+  const code = (e as { code?: string })?.code;
+  switch (code) {
+    case "not_granted":
+      throw new ErrorPausa("No diste permiso para usar tu cuenta de Claude. Recarga la página y acepta el permiso.");
+    case "sampling_disabled":
+      throw new ErrorPausa("Tu cuenta u organización no permite que las apps usen Claude.");
+    case "rate_limited":
+      throw new ErrorPausa(
+        (e as { reason?: string }).reason === "usage_limit"
+          ? "Llegaste al límite de uso de tu suscripción de Claude. Reintenta cuando se renueve."
+          : "Demasiadas fotos seguidas. Espera un minuto y toca Reintentar.",
+      );
+    case "session_expired":
+      throw new ErrorPausa("Tu sesión de Claude expiró. Vuelve a iniciar sesión y recarga.");
+    case "images_unavailable":
+      throw new ErrorPausa("Esta vista de Claude no permite enviar imágenes. Abre la app en el navegador o en la app de Claude actualizada.");
+    case "image_rejected":
+      return "La foto no se pudo enviar (formato o tamaño). Vuelve a tomarla.";
+    case "refused":
+      return "Claude no quiso procesar esta imagen.";
+    case "invalid_json":
+      return "La respuesta de la IA no se pudo leer. Reintenta.";
+    case "cancelled":
+      return "Cancelado.";
+    default:
+      return "Falló la conexión con Claude. Reintenta.";
+  }
+}
+
 export function mensajeDeError(e: unknown): string {
   if (e instanceof Anthropic.AuthenticationError) return "Clave de API inválida. Revisa ⚙ Ajustes.";
   if (e instanceof Anthropic.PermissionDeniedError) return "La clave no tiene permiso para este modelo.";

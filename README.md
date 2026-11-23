@@ -1,5 +1,11 @@
 # Registro de Dictámenes
 
+> **Usar con tu suscripción de Claude (sin clave de API):** usa la versión publicada en claude.ai
+> (`npm run build:artifact` genera `dist-artifact/registro-dictamenes.html`, que se publica como artifact).
+> Dentro de claude.ai la IA usa tu cuenta de Claude y los registros se sincronizan entre celular y PC.
+> Fuera de claude.ai (Vercel) la app necesita una clave de API de Anthropic, porque la suscripción
+> solo puede usarse dentro de claude.ai.
+
 Saca fotos (o sube PDFs) de documentos y una IA (Claude) llena automáticamente la planilla
 **Carrera | N° Dictamen | Descripción**, con el mismo formato que `registro_2025.xlsx`.
 
@@ -15,10 +21,10 @@ Saca fotos (o sube PDFs) de documentos y una IA (Claude) llena automáticamente 
 ## Uso (pensado para celular)
 
 1. Abre la app en el celular y agrégala a la pantalla de inicio (menú del navegador → "Agregar a pantalla de inicio").
-2. En **⚙ Ajustes** pega tu clave de API de Anthropic (console.anthropic.com → API Keys).
-3. **🖼 Galería**: elige muchas fotos de un tiro (cada foto = un registro).
-   **📷 Cámara**: toma fotos una por una; cada una se procesa al instante.
-   Documento de varias páginas: marca la casilla, toma todas las páginas con la Cámara y desmarca la casilla para enviarlas juntas.
+2. Solo en la versión fuera de claude.ai: en **⚙ Ajustes** pega tu clave de API de Anthropic.
+3. **📷 Nuevo documento**: toma todas las páginas que quieras con la cámara y toca **✔ Guardar**:
+   se guarda como UN documento (un registro). Las páginas quedan guardadas aunque se cierre la app.
+   **🖼 Galería**: elige muchas fotos de un tiro; la app pregunta si son documentos distintos o páginas de uno solo.
 4. Revisa/corrige las tarjetas (las dudosas salen en amarillo) y **⬇ Descargar Excel** o **📤 Compartir Excel** (WhatsApp, correo…).
 
 ## Desarrollo

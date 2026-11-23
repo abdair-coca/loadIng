@@ -3,83 +3,101 @@ import {
   type Registro,
   type Trabajo,
   uid,
-  cargarRegistros,
-  guardarRegistros,
   cargarTrabajos,
   guardarTrabajos,
   guardarFoto,
   leerFoto,
+  borrarFoto,
   limpiarFotosHuerfanas,
   pedirPersistencia,
   cargarAjustes,
   guardarAjustes,
 } from "./db";
 import { prepararArchivo } from "./imagen";
-import { interpretar, mensajeDeError, MODELOS } from "./ia";
+import { interpretar, interpretarConSuscripcion, mensajeDeError, ErrorPausa, MODELOS, type RegistroIA } from "./ia";
 import { exportarExcel, importarExcel } from "./excel";
+import { detectarPlataforma, type Plataforma } from "./plataforma";
+import { type Almacen, AlmacenLocal, AlmacenClaude } from "./almacen";
+import { preguntar, confirmar, aviso } from "./ui";
+import { abrirCamara, cerrarCamara, capturar } from "./camara";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
 let registros: Registro[] = [];
 let trabajos: Trabajo[] = [];
 let ajustes = cargarAjustes();
+let plataforma: Plataforma = { enClaude: false, sample: null, maxImagenes: 0, db: null, downloads: null };
+let almacen: Almacen = new AlmacenLocal(() => registros);
+let listo = false;
 let activos = 0;
 let completadosSesion = 0;
+/** La cola está detenida por un error de la cuenta (límite de uso, permiso…). */
+let pausado = false;
+/** En claude.ai la IA gasta el uso del usuario: la cola arranca solo tras una acción suya. */
+let autorizado = false;
 
-// ---------- Aviso breve ----------
-let tAviso = 0;
-function aviso(txt: string) {
-  const el = $("#aviso");
-  el.textContent = txt;
-  el.classList.add("visible");
-  clearTimeout(tAviso);
-  tAviso = window.setTimeout(() => el.classList.remove("visible"), 2500);
-}
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-// ---------- Guardado ----------
-let tGuardar = 0;
-function guardarPronto() {
-  clearTimeout(tGuardar);
-  tGuardar = window.setTimeout(() => {
-    guardarRegistros(registros);
-    guardarTrabajos(trabajos);
-  }, 300);
+let tTrab = 0;
+function guardarTrabajosPronto() {
+  clearTimeout(tTrab);
+  tTrab = window.setTimeout(() => guardarTrabajos(trabajos), 300);
 }
-window.addEventListener("beforeunload", () => {
-  guardarRegistros(registros);
-  guardarTrabajos(trabajos);
-});
 
 // ---------- Miniaturas ----------
 const urls = new Map<string, string>();
 const tipos = new Map<string, string>();
 async function urlFoto(id: string): Promise<string | null> {
   if (urls.has(id)) return urls.get(id)!;
-  const b = await leerFoto(id);
+  const b = await leerFoto(id).catch(() => undefined);
   if (!b) return null;
   const u = URL.createObjectURL(b);
   urls.set(id, u);
   tipos.set(id, b.type);
   return u;
 }
+const ICONO_PDF =
+  "data:image/svg+xml," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="56" height="56" fill="#fde2e0"/><text x="28" y="34" font-size="16" text-anchor="middle" fill="#b42318" font-family="sans-serif">PDF</text></svg>');
 
-// ---------- Tabla ----------
-const esc = (s: string) =>
-  s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+async function cargarMiniaturas(raiz: ParentNode) {
+  raiz.querySelectorAll<HTMLImageElement>("img[data-foto]:not([src])").forEach(async (img) => {
+    const id = img.dataset.foto!;
+    const u = await urlFoto(id);
+    if (!u) return img.remove(); // la foto está en otro dispositivo
+    img.src = tipos.get(id) === "application/pdf" ? ICONO_PDF : u;
+  });
+}
 
+// ---------- Tabla / tarjetas ----------
 function ordenar() {
   registros.sort((a, b) => a.creado - b.creado);
 }
+const firma = (r: Registro, n: number) =>
+  JSON.stringify([n, r.carrera, r.dictamen, r.descripcion, r.revisar, r.nota, r.fotoIds]);
 
 function autoAlto(el: HTMLTextAreaElement) {
   el.style.height = "auto";
   el.style.height = el.scrollHeight + 2 + "px";
 }
 
+function filaHTML(r: Registro, n: number) {
+  return `<tr data-id="${esc(r.id)}" data-f="${esc(firma(r, n))}" class="${r.revisar ? "revisar" : ""}">
+    <td class="n">${n}</td>
+    <td class="foto">${r.fotoIds.map((f) => `<img data-foto="${esc(f)}" alt="Foto del documento" />`).join("")}</td>
+    <td class="car" data-label="Carrera"><textarea id="car-${esc(r.id)}" data-campo="carrera" rows="1" title="Una línea por dependencia">${esc(r.carrera)}</textarea></td>
+    <td class="dic" data-label="N° Dictamen"><input id="dic-${esc(r.id)}" type="text" data-campo="dictamen" value="${esc(r.dictamen)}" /></td>
+    <td data-label="Descripción"><textarea id="des-${esc(r.id)}" data-campo="descripcion" rows="1">${esc(r.descripcion)}</textarea></td>
+    <td class="rev"><label><input id="rev-${esc(r.id)}" type="checkbox" data-campo="revisar" ${r.revisar ? "checked" : ""}/> revisar</label>
+      ${r.nota ? `<span class="nota">${esc(r.nota)}</span>` : ""}</td>
+    <td class="acc"><button type="button" data-acc="arriba" aria-label="Subir">↑</button><button type="button" data-acc="abajo" aria-label="Bajar">↓</button><button type="button" data-acc="borrar" aria-label="Eliminar">🗑</button></td>
+  </tr>`;
+}
+
 function renderTabla() {
   const filtro = ($<HTMLInputElement>("#filtro").value || "").toLowerCase();
-  // conservar el foco si el usuario está escribiendo
-  const act = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+  const act = document.activeElement as HTMLInputElement | null;
   const foco = act?.dataset?.campo
     ? { id: act.closest("tr")?.dataset.id, campo: act.dataset.campo, ini: act.selectionStart, fin: act.selectionEnd }
     : null;
@@ -87,41 +105,32 @@ function renderTabla() {
   const filas = registros.filter(
     (r) => !filtro || `${r.carrera} ${r.dictamen} ${r.descripcion} ${r.fuente}`.toLowerCase().includes(filtro),
   );
+  const numero = new Map(registros.map((r, i) => [r.id, i + 1]));
   const tb = $("#tbody");
-  tb.innerHTML = filas
-    .map((r) => {
-      const n = registros.indexOf(r) + 1;
-      const filasCar = Math.max(2, r.carrera.split("\n").length);
-      return `<tr data-id="${r.id}" class="${r.revisar ? "revisar" : ""}">
-        <td class="n">${n}</td>
-        <td class="foto">${r.fotoIds.map((f) => `<img data-foto="${f}" alt="" />`).join("")}</td>
-        <td class="car" data-label="Carrera"><textarea data-campo="carrera" rows="${filasCar}" title="Una línea por dependencia">${esc(r.carrera)}</textarea></td>
-        <td class="dic" data-label="N° Dictamen"><input type="text" data-campo="dictamen" value="${esc(r.dictamen)}" /></td>
-        <td data-label="Descripción"><textarea data-campo="descripcion" rows="2">${esc(r.descripcion)}</textarea></td>
-        <td class="rev"><label><input type="checkbox" data-campo="revisar" ${r.revisar ? "checked" : ""}/> revisar</label>
-          ${r.nota ? `<span class="nota">${esc(r.nota)}</span>` : ""}</td>
-        <td class="acc"><button data-acc="arriba" title="Subir" aria-label="Subir">↑</button><button data-acc="abajo" title="Bajar" aria-label="Bajar">↓</button><button data-acc="borrar" title="Eliminar" aria-label="Eliminar">🗑</button></td>
-      </tr>`;
-    })
-    .join("");
+  const actuales = Array.from(tb.children) as HTMLTableRowElement[];
+  const mismoOrden = actuales.length === filas.length && actuales.every((tr, i) => tr.dataset.id === filas[i].id);
+
+  if (mismoOrden) {
+    // Solo se reemplazan las filas que cambiaron (no se interrumpe a quien está escribiendo)
+    filas.forEach((r, i) => {
+      const n = numero.get(r.id)!;
+      if (actuales[i].dataset.f === firma(r, n)) return;
+      const t = document.createElement("tbody");
+      t.innerHTML = filaHTML(r, n);
+      const nueva = t.firstElementChild as HTMLTableRowElement;
+      actuales[i].replaceWith(nueva);
+      nueva.querySelectorAll("textarea").forEach(autoAlto);
+    });
+  } else {
+    tb.innerHTML = filas.map((r) => filaHTML(r, numero.get(r.id)!)).join("");
+    tb.querySelectorAll("textarea").forEach(autoAlto);
+  }
+  cargarMiniaturas(tb);
   $("#contador").textContent = filtro ? `${filas.length} de ${registros.length} registros` : `${registros.length} registros`;
+  $("#vacio").hidden = registros.length > 0;
 
-  tb.querySelectorAll<HTMLImageElement>("img[data-foto]").forEach(async (img) => {
-    const id = img.dataset.foto!;
-    const u = await urlFoto(id);
-    if (!u) return img.remove();
-    if (tipos.get(id) === "application/pdf") {
-      img.alt = "PDF";
-      img.src =
-        "data:image/svg+xml," +
-        encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><rect width="56" height="56" fill="#fee2e2"/><text x="28" y="34" font-size="16" text-anchor="middle" fill="#b91c1c">PDF</text></svg>');
-    } else img.src = u;
-  });
-
-  tb.querySelectorAll("textarea").forEach(autoAlto);
-
-  if (foco?.id) {
-    const el = tb.querySelector<HTMLInputElement>(`tr[data-id="${foco.id}"] [data-campo="${foco.campo}"]`);
+  if (foco?.id && document.activeElement !== act) {
+    const el = tb.querySelector<HTMLInputElement>(`tr[data-id="${CSS.escape(foco.id)}"] [data-campo="${foco.campo}"]`);
     if (el) {
       el.focus();
       try { el.setSelectionRange(foco.ini, foco.fin); } catch { /* checkbox */ }
@@ -132,18 +141,20 @@ function renderTabla() {
 $("#tbody").addEventListener("input", (ev) => {
   const el = ev.target as HTMLInputElement;
   if (el instanceof HTMLTextAreaElement) autoAlto(el);
-  const campo = el.dataset.campo as keyof Registro | undefined;
-  const id = el.closest("tr")?.dataset.id;
-  const r = registros.find((x) => x.id === id);
-  if (!r || !campo) return;
+  const campo = el.dataset.campo;
+  const tr = el.closest("tr") as HTMLTableRowElement | null;
+  const r = registros.find((x) => x.id === tr?.dataset.id);
+  if (!r || !campo || !tr) return;
   if (campo === "revisar") {
     r.revisar = el.checked;
     if (!r.revisar) r.nota = "";
-    el.closest("tr")!.classList.toggle("revisar", r.revisar);
+    tr.classList.toggle("revisar", r.revisar);
+    tr.querySelector(".nota")?.remove();
   } else if (campo === "carrera" || campo === "dictamen" || campo === "descripcion") {
     r[campo] = el.value;
   }
-  guardarPronto();
+  tr.dataset.f = firma(r, registros.indexOf(r) + 1);
+  almacen.guardar(r);
 });
 
 $("#tbody").addEventListener("click", async (ev) => {
@@ -156,15 +167,20 @@ $("#tbody").addEventListener("click", async (ev) => {
   const i = registros.findIndex((x) => x.id === id);
   if (i < 0) return;
   if (acc === "borrar") {
-    if (!confirm("¿Eliminar este registro?")) return;
-    registros.splice(i, 1);
+    const r = registros[i];
+    if (!(await confirmar(`¿Eliminar el registro ${r.dictamen || "sin número"}?`, "Eliminar", true))) return;
+    registros.splice(registros.indexOf(r), 1);
+    almacen.borrar(r.id);
   } else {
     const j = acc === "arriba" ? i - 1 : i + 1;
     if (j < 0 || j >= registros.length) return;
-    [registros[i].creado, registros[j].creado] = [registros[j].creado, registros[i].creado];
+    const a = registros[i], b = registros[j];
+    [a.creado, b.creado] = [b.creado, a.creado];
+    if (a.creado === b.creado) a.creado += acc === "arriba" ? -0.001 : 0.001;
+    almacen.guardar(a);
+    almacen.guardar(b);
     ordenar();
   }
-  guardarPronto();
   renderTabla();
 });
 
@@ -172,40 +188,67 @@ async function verFoto(id: string) {
   const u = await urlFoto(id);
   if (!u) return;
   const cont = $("#foto-grande");
-  cont.innerHTML = tipos.get(id) === "application/pdf" ? `<iframe src="${u}"></iframe>` : `<img src="${u}" alt="" />`;
+  cont.innerHTML = tipos.get(id) === "application/pdf" ? `<iframe src="${u}" title="PDF"></iframe>` : `<img src="${u}" alt="Foto del documento" />`;
   $<HTMLDialogElement>("#dlg-foto").showModal();
 }
 
 $("#filtro").addEventListener("input", renderTabla);
 
 $("#btn-agregar").addEventListener("click", () => {
-  registros.push({
+  const ultimo = registros.at(-1)?.creado ?? 0;
+  const r: Registro = {
     id: uid(), carrera: "", dictamen: "", descripcion: "", fotoIds: [], fuente: "manual",
-    revisar: false, nota: "", creado: Date.now(),
-  });
-  guardarPronto();
+    revisar: false, nota: "", creado: Math.max(Date.now(), ultimo + 1),
+  };
+  registros.push(r);
+  almacen.guardar(r);
   renderTabla();
-  $<HTMLTextAreaElement>(`tr[data-id="${registros[registros.length - 1].id}"] textarea`)?.focus();
+  $<HTMLTextAreaElement>(`#car-${CSS.escape(r.id)}`)?.focus();
 });
 
 $("#btn-borrar").addEventListener("click", async () => {
-  if (!registros.length && !trabajos.length) return;
-  if (!confirm(`¿Borrar los ${registros.length} registros y sus fotos? Exporta el Excel antes si lo necesitas.`)) return;
-  if (!confirm("¿Seguro? Esto no se puede deshacer.")) return;
+  if (!registros.length) return aviso("No hay registros.");
   $<HTMLDialogElement>("#dlg-ajustes").close();
+  if (!(await confirmar(`¿Borrar los ${registros.length} registros? Descarga el Excel antes si lo necesitas. No se puede deshacer.`, "Borrar todo", true))) return;
+  for (const r of registros) almacen.borrar(r.id);
   registros = [];
-  trabajos = trabajos.filter((t) => t.estado === "procesando");
-  await guardarRegistros(registros);
-  await guardarTrabajos(trabajos);
-  await limpiarFotosHuerfanas(registros, trabajos);
   renderTabla();
-  renderCola();
+  await almacen.vaciar();
+  await limpiarFotosHuerfanas(registros, trabajos);
+  aviso("Registros borrados");
 });
 
+// Datos que llegan de otro dispositivo (solo en claude.ai)
+function fusionarRemotos(remotos: Registro[]) {
+  const pend = almacen.pendientes();
+  const locales = new Map(registros.map((r) => [r.id, r]));
+  const idsRemotos = new Set(remotos.map((r) => r.id));
+  const nuevos = remotos
+    .filter((r) => !(pend.has(r.id) && !locales.has(r.id))) // borrado aquí, aún no confirmado
+    .map((r) => (pend.has(r.id) && locales.has(r.id) ? locales.get(r.id)! : r));
+  for (const r of registros) if (pend.has(r.id) && !idsRemotos.has(r.id)) nuevos.push(r); // creado aquí, aún no confirmado
+  registros = nuevos;
+  ordenar();
+  renderTabla();
+}
+
 // ---------- Excel ----------
+const nombreExcel = () => `registro_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
 $("#btn-exportar").addEventListener("click", async () => {
-  if (!registros.length) return alert("No hay registros para exportar.");
+  if (!registros.length) return aviso("No hay registros para descargar.");
+  await almacen.vaciar();
   const blob = await exportarExcel(registros);
+  if (plataforma.enClaude) {
+    if (!plataforma.downloads) return aviso("Esta vista de Claude no permite descargar archivos. Abre la app en el navegador.", 5000);
+    try {
+      await plataforma.downloads.save({ filename: nombreExcel(), data: blob });
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code !== "declined") aviso("No se pudo descargar el Excel (" + (code ?? "error") + ").");
+    }
+    return;
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = nombreExcel();
@@ -213,19 +256,15 @@ $("#btn-exportar").addEventListener("click", async () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 });
 
-const nombreExcel = () => `registro_${new Date().toISOString().slice(0, 10)}.xlsx`;
 const btnCompartir = $<HTMLButtonElement>("#btn-compartir");
-try {
-  btnCompartir.hidden = !navigator.canShare?.({ files: [new File([""], "x.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] });
-} catch { /* sin soporte */ }
 btnCompartir.addEventListener("click", async () => {
-  if (!registros.length) return alert("No hay registros para compartir.");
+  if (!registros.length) return aviso("No hay registros para compartir.");
   const blob = await exportarExcel(registros);
   const file = new File([blob], nombreExcel(), { type: blob.type });
   try {
     await navigator.share({ files: [file], title: "Registro de dictámenes" });
   } catch (e) {
-    if ((e as Error).name !== "AbortError") alert("No se pudo compartir: " + (e as Error).message);
+    if ((e as Error).name !== "AbortError") aviso("No se pudo compartir: " + (e as Error).message);
   }
 });
 
@@ -233,36 +272,164 @@ $<HTMLInputElement>("#in-excel").addEventListener("change", async (ev) => {
   const input = ev.target as HTMLInputElement;
   const f = input.files?.[0];
   input.value = "";
-  if (!f) return;
+  if (f) await importarArchivoExcel(f);
+});
+
+async function importarArchivoExcel(f: File) {
   try {
     const nuevos = await importarExcel(f);
     const base = registros.length ? Math.max(...registros.map((r) => r.creado)) + 1 : Date.now();
-    nuevos.forEach((r, i) => (r.creado = base + i));
+    nuevos.forEach((r, i) => {
+      r.creado = base + i;
+      almacen.guardar(r);
+    });
     registros.push(...nuevos);
-    guardarPronto();
     renderTabla();
-    alert(`Se importaron ${nuevos.length} registros (agregados al final).`);
+    aviso(`Se importaron ${nuevos.length} registros (agregados al final).`, 4000);
   } catch (e) {
-    alert("No se pudo importar: " + mensajeDeError(e));
+    aviso("No se pudo importar: " + mensajeDeError(e), 5000);
   }
+}
+
+// ---------- Cola de la IA ----------
+const puedeLeer = () => (plataforma.enClaude ? !!plataforma.sample && plataforma.maxImagenes > 0 : !!ajustes.apiKey);
+const maxParalelo = () => (plataforma.enClaude ? 2 : Math.max(1, ajustes.paralelo));
+const esPdf = (b: Blob) => b.type === "application/pdf";
+
+function procesarCola() {
+  renderCola();
+  if (!listo || pausado || !puedeLeer()) return;
+  if (plataforma.enClaude && !autorizado) return;
+  while (activos < maxParalelo()) {
+    const t = trabajos.find((x) => x.estado === "pendiente");
+    if (!t) break;
+    activos++;
+    t.estado = "procesando";
+    procesar(t).finally(() => {
+      activos--;
+      guardarTrabajosPronto();
+      procesarCola();
+    });
+  }
+  renderCola();
+}
+
+async function procesar(t: Trabajo) {
+  try {
+    const blobs: Blob[] = [];
+    for (const id of t.fotoIds) {
+      const blob = await leerFoto(id);
+      if (!blob) throw new Error("La foto ya no está guardada en este dispositivo.");
+      blobs.push(blob);
+    }
+    let res: RegistroIA[];
+    let extra = "";
+    if (plataforma.enClaude) {
+      if (!plataforma.sample) throw new ErrorPausa("Claude no está disponible en esta vista.");
+      const imgs = blobs.filter((b) => !esPdf(b));
+      if (!imgs.length) throw new Error("En la versión de claude.ai sube fotos (JPG/PNG), no PDF.");
+      const usar = imgs.slice(0, plataforma.maxImagenes);
+      if (imgs.length > usar.length) extra = `Solo se leyeron las primeras ${usar.length} de ${imgs.length} páginas.`;
+      res = await interpretarConSuscripcion(plataforma.sample, usar, t.fotoIds.length > 1, ajustes.precision);
+    } else {
+      res = await interpretar(ajustes.apiKey, ajustes.modelo, blobs.slice(0, 20).map((blob) => ({ blob, nombre: t.nombre })), t.fotoIds.length > 1);
+    }
+    const lista = res.length ? res : [{ carrera: [], n_dictamen: "", descripcion: "", revisar: true, nota: "La IA no encontró ningún documento" }];
+    lista.forEach((r, i) => {
+      const nota = [r.revisar ? r.nota : "", extra].filter(Boolean).join(" ");
+      const reg: Registro = {
+        id: uid(),
+        carrera: r.carrera.map((s) => s.trim()).filter(Boolean).join("\n"),
+        dictamen: r.n_dictamen.trim(),
+        descripcion: r.descripcion.trim(),
+        fotoIds: t.fotoIds,
+        fuente: t.nombre,
+        revisar: r.revisar || !!extra,
+        nota,
+        creado: t.creado + i / 100,
+      };
+      registros.push(reg);
+      almacen.guardar(reg);
+    });
+    ordenar();
+    trabajos = trabajos.filter((x) => x !== t);
+    completadosSesion++;
+    renderTabla();
+  } catch (e) {
+    t.estado = "error";
+    t.error = mensajeDeError(e);
+    if (e instanceof ErrorPausa) pausado = true;
+  }
+}
+
+function renderCola() {
+  const cola = $("#cola");
+  const visibles = trabajos.filter((t) => t.estado !== "espera");
+  if (!visibles.length) {
+    cola.innerHTML = completadosSesion ? `<p class="ayuda">✔ ${completadosSesion} documento(s) leídos en esta sesión.</p>` : "";
+    return;
+  }
+  const c = (e: string) => trabajos.filter((t) => t.estado === e).length;
+  const pend = c("pendiente"), proc = c("procesando"), err = c("error");
+  const detenida = pend && !proc && (pausado || (plataforma.enClaude && !autorizado) || !puedeLeer());
+  cola.innerHTML = `
+    <div class="cola-res">
+      <b>Lectura IA:</b> ${proc} leyendo · ${pend} en espera · ${err} con error
+      ${detenida && puedeLeer() ? `<button type="button" class="btn chico primario" data-cola="continuar">▶ Leer ${pend} pendiente(s)</button>` : ""}
+      ${!puedeLeer() && pend ? '<span class="trabajo error">— la IA no está disponible (mira ⚙ Ajustes)</span>' : ""}
+      ${err ? '<button type="button" class="btn chico" data-cola="reintentar">Reintentar errores</button><button type="button" class="btn chico" data-cola="descartar">Descartar errores</button>' : ""}
+    </div>
+    ${visibles
+      .filter((t) => t.estado !== "pendiente")
+      .slice(0, 50)
+      .map(
+        (t) => `<div class="trabajo ${t.estado}"><span class="estado">${t.estado === "procesando" ? "⏳ leyendo" : "⚠ error"}</span>
+        <span>${esc(t.nombre)}${t.error ? " — " + esc(t.error) : ""}</span></div>`,
+      )
+      .join("")}`;
+}
+
+$("#cola").addEventListener("click", async (ev) => {
+  const acc = (ev.target as HTMLElement).dataset.cola;
+  if (!acc) return;
+  autorizado = true;
+  pausado = false;
+  if (acc === "reintentar") {
+    trabajos.forEach((t) => {
+      if (t.estado === "error" && t.fotoIds.length) { t.estado = "pendiente"; t.error = undefined; }
+    });
+  } else if (acc === "descartar") {
+    trabajos = trabajos.filter((t) => t.estado !== "error");
+    await guardarTrabajos(trabajos);
+    await limpiarFotosHuerfanas(registros, trabajos);
+  }
+  guardarTrabajosPronto();
+  procesarCola();
 });
 
-// ---------- Carga de fotos y cola de la IA ----------
-let mismoAcumular = false;
-let grupoCamara: Trabajo | null = null;
-
-async function agregarArchivos(files: File[], desdeCamara = false) {
+// ---------- Galería: muchas fotos de un tiro ----------
+async function agregarArchivos(files: File[]) {
   files = files.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf" || /\.(pdf|jpe?g|png|webp|heic)$/i.test(f.name));
-  if (!files.length) return;
-  if (!ajustes.apiKey) {
-    alert("Primero ingresa tu clave de API en ⚙ Ajustes. Las fotos quedarán en cola.");
+  if (plataforma.enClaude && files.some((f) => f.type === "application/pdf")) {
+    aviso("En la versión de claude.ai solo se leen fotos; se omitieron los PDF.", 4000);
+    files = files.filter((f) => f.type !== "application/pdf");
   }
-  const marcado = $<HTMLInputElement>("#chk-mismo").checked;
-  mismoAcumular = desdeCamara && marcado;
-  const mismo = marcado && (files.length > 1 || mismoAcumular);
-  const base = Date.now();
+  if (!files.length) return;
+
+  let unSolo = false;
+  if (files.length > 1) {
+    const r = await preguntar(`Elegiste ${files.length} fotos. ¿Qué son?`, [
+      { valor: "cancelar", etiqueta: "Cancelar" },
+      { valor: "uno", etiqueta: `Páginas de UN solo documento (1 registro)` },
+      { valor: "varios", etiqueta: `Documentos distintos (${files.length} registros)`, tipo: "primario" },
+    ]);
+    if (!r || r === "cancelar") return;
+    unSolo = r === "uno";
+  }
+
+  aviso(`Preparando ${files.length} foto(s)…`);
+  const base = Math.max(Date.now(), (registros.at(-1)?.creado ?? 0) + 1);
   const preparados: { id: string; nombre: string }[] = [];
-  $("#cola").insertAdjacentHTML("afterbegin", `<p id="preparando">Preparando ${files.length} archivo(s)…</p>`);
   for (const f of files) {
     try {
       const blob = await prepararArchivo(f);
@@ -273,17 +440,9 @@ async function agregarArchivos(files: File[], desdeCamara = false) {
       trabajos.push({ id: uid(), nombre: f.name, fotoIds: [], estado: "error", error: mensajeDeError(e), creado: base });
     }
   }
-  if (mismoAcumular && preparados.length) {
-    // Cámara + "mismo documento": cada foto se suma al mismo grupo, que espera hasta desmarcar la casilla
-    if (!grupoCamara || !trabajos.includes(grupoCamara) || grupoCamara.estado !== "espera") {
-      grupoCamara = { id: uid(), nombre: "Documento de varias páginas", fotoIds: [], estado: "espera", creado: base };
-      trabajos.push(grupoCamara);
-    }
-    grupoCamara.fotoIds.push(...preparados.map((p) => p.id));
-    grupoCamara.nombre = `Documento de ${grupoCamara.fotoIds.length} página(s)`;
-  } else if (mismo && preparados.length) {
+  if (unSolo && preparados.length) {
     trabajos.push({
-      id: uid(), nombre: preparados.map((p) => p.nombre).join(", "), fotoIds: preparados.map((p) => p.id),
+      id: uid(), nombre: `Documento de ${preparados.length} página(s)`, fotoIds: preparados.map((p) => p.id),
       estado: "pendiente", creado: base,
     });
   } else {
@@ -291,131 +450,148 @@ async function agregarArchivos(files: File[], desdeCamara = false) {
       trabajos.push({ id: uid(), nombre: p.nombre, fotoIds: [p.id], estado: "pendiente", creado: base + i }),
     );
   }
-  // En modo "mismo documento" con la cámara, las fotos se van juntando hasta desmarcar la casilla
-  if (!(mismoAcumular && $<HTMLInputElement>("#chk-mismo").checked)) $<HTMLInputElement>("#chk-mismo").checked = false;
   await guardarTrabajos(trabajos);
-  if (mismoAcumular && grupoCamara) {
-    aviso(`📄 Página ${grupoCamara.fotoIds.length} agregada. Toma la siguiente o desmarca la casilla para enviar.`);
-  } else if (preparados.length) {
-    aviso(preparados.length === 1 ? "✔ Foto agregada. La IA la está leyendo…" : `✔ ${preparados.length} fotos agregadas`);
-  }
-  renderCola();
+  autorizado = true;
+  pausado = false;
+  aviso(preparados.length === 1 ? "✔ Foto agregada; la IA la está leyendo…" : `✔ ${preparados.length} fotos agregadas; la IA las está leyendo…`);
   procesarCola();
 }
 
-function procesarCola() {
-  if (!ajustes.apiKey) return renderCola();
-  while (activos < Math.max(1, ajustes.paralelo)) {
-    const t = trabajos.find((x) => x.estado === "pendiente");
-    if (!t) break;
-    activos++;
-    t.estado = "procesando";
-    renderCola();
-    procesar(t).finally(() => {
-      activos--;
-      guardarPronto();
-      renderCola();
-      procesarCola();
-    });
-  }
-}
-
-async function procesar(t: Trabajo) {
-  try {
-    const archivos = [];
-    for (const id of t.fotoIds) {
-      const blob = await leerFoto(id);
-      if (!blob) throw new Error("La foto ya no está guardada.");
-      archivos.push({ blob, nombre: t.nombre });
-    }
-    const res = await interpretar(ajustes.apiKey, ajustes.modelo, archivos, t.fotoIds.length > 1);
-    const lista = res.length
-      ? res
-      : [{ carrera: [], n_dictamen: "", descripcion: "", revisar: true, nota: "La IA no encontró ningún documento" }];
-    lista.forEach((r, i) =>
-      registros.push({
-        id: uid(),
-        carrera: r.carrera.map((s) => s.trim()).filter(Boolean).join("\n"),
-        dictamen: r.n_dictamen.trim(),
-        descripcion: r.descripcion.trim(),
-        fotoIds: t.fotoIds,
-        fuente: t.nombre,
-        revisar: r.revisar,
-        nota: r.revisar ? r.nota : "",
-        creado: t.creado + i / 100,
-      }),
-    );
-    ordenar();
-    trabajos = trabajos.filter((x) => x !== t);
-    completadosSesion++;
-    renderTabla();
-  } catch (e) {
-    t.estado = "error";
-    t.error = mensajeDeError(e);
-  }
-}
-
-function renderCola() {
-  const cola = $("#cola");
-  if (!trabajos.length) {
-    cola.innerHTML = completadosSesion ? `<p class="ayuda">✔ ${completadosSesion} carga(s) procesadas en esta sesión.</p>` : "";
-    return;
-  }
-  const c = (e: string) => trabajos.filter((t) => t.estado === e).length;
-  const pend = c("pendiente"), proc = c("procesando"), err = c("error");
-  const visibles = trabajos.filter((t) => t.estado !== "pendiente").slice(0, 50);
-  const etiqueta = (t: Trabajo) =>
-    t.estado === "procesando" ? "⏳ procesando" : t.estado === "espera" ? "📄 juntando páginas (desmarca la casilla para enviar)" : "⚠ error";
-  cola.innerHTML = `
-    <div class="cola-res">
-      <b>Cola IA:</b> ${proc} procesando · ${pend} en espera · ${completadosSesion} listas · ${err} con error
-      ${!ajustes.apiKey && pend ? '<span class="trabajo error">— falta la clave de API (⚙ Ajustes)</span>' : ""}
-      ${err ? '<button class="btn chico" data-cola="reintentar">Reintentar errores</button><button class="btn chico" data-cola="descartar">Descartar errores</button>' : ""}
-    </div>
-    ${visibles
-      .map(
-        (t) => `<div class="trabajo ${t.estado}"><span class="estado">${etiqueta(t)}</span>
-        <span>${esc(t.nombre)}${t.error ? " — " + esc(t.error) : ""}</span></div>`,
-      )
-      .join("")}`;
-}
-
-$("#cola").addEventListener("click", async (ev) => {
-  const acc = (ev.target as HTMLElement).dataset.cola;
-  if (acc === "reintentar") {
-    trabajos.forEach((t) => {
-      if (t.estado === "error" && t.fotoIds.length) { t.estado = "pendiente"; t.error = undefined; }
-    });
-    procesarCola();
-  } else if (acc === "descartar") {
-    trabajos = trabajos.filter((t) => t.estado !== "error");
-    await guardarTrabajos(trabajos);
-    await limpiarFotosHuerfanas(registros, trabajos);
-  }
-  guardarPronto();
-  renderCola();
+$<HTMLInputElement>("#in-archivos").addEventListener("change", (ev) => {
+  const input = ev.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  input.value = "";
+  agregarArchivos(files);
 });
 
-for (const sel of ["#in-camara", "#in-archivos"]) {
-  $<HTMLInputElement>(sel).addEventListener("change", (ev) => {
+// ---------- Nuevo documento con la cámara: muchas páginas -> UN documento ----------
+const dlgDoc = $<HTMLDialogElement>("#dlg-doc");
+const visor = $<HTMLVideoElement>("#visor");
+let stream: MediaStream | null = null;
+let doc: Trabajo | null = null;
+
+async function abrirDocumento() {
+  doc = trabajos.find((t) => t.estado === "espera") ?? null;
+  if (!doc) {
+    doc = { id: uid(), nombre: "Documento", fotoIds: [], estado: "espera", creado: Date.now() };
+    trabajos.push(doc);
+  }
+  renderPaginas();
+  dlgDoc.showModal();
+  stream = await abrirCamara(visor);
+  const conVisor = !!stream;
+  visor.hidden = !conVisor;
+  $("#sin-visor").hidden = conVisor;
+  $("#doc-disparar").hidden = !conVisor;
+  $("#doc-tomar").hidden = conVisor;
+}
+
+function cerrarDocumento() {
+  cerrarCamara(visor, stream);
+  stream = null;
+  if (dlgDoc.open) dlgDoc.close();
+}
+
+async function agregarPagina(blob: Blob) {
+  if (!doc) return;
+  const id = uid();
+  await guardarFoto(id, blob);
+  doc.fotoIds.push(id);
+  await guardarTrabajos(trabajos); // cada página queda guardada al instante
+  renderPaginas();
+  aviso(`📄 Página ${doc.fotoIds.length} agregada`, 1500);
+}
+
+function renderPaginas() {
+  if (!doc) return;
+  const n = doc.fotoIds.length;
+  $("#doc-titulo").textContent = n ? `Documento nuevo · ${n} página(s)` : "Documento nuevo";
+  const guardar = $<HTMLButtonElement>("#doc-guardar");
+  guardar.disabled = n === 0;
+  guardar.textContent = n ? `✔ Guardar (${n})` : "✔ Guardar";
+  const cont = $("#paginas");
+  cont.innerHTML = doc.fotoIds
+    .map((id, i) => `<div class="pagina"><img data-foto="${esc(id)}" alt="Página ${i + 1}" /><span>${i + 1}</span><button type="button" data-quitar="${esc(id)}" aria-label="Quitar página ${i + 1}">✕</button></div>`)
+    .join("");
+  cargarMiniaturas(cont);
+  cont.scrollLeft = cont.scrollWidth;
+}
+
+$("#paginas").addEventListener("click", async (ev) => {
+  const id = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-quitar]")?.dataset.quitar;
+  if (!id || !doc) return;
+  doc.fotoIds = doc.fotoIds.filter((f) => f !== id);
+  await borrarFoto(id);
+  await guardarTrabajos(trabajos);
+  renderPaginas();
+});
+
+$("#btn-nuevo").addEventListener("click", abrirDocumento);
+
+$("#doc-disparar").addEventListener("click", async () => {
+  try {
+    const btn = $<HTMLButtonElement>("#doc-disparar");
+    btn.disabled = true;
+    await agregarPagina(await capturar(visor));
+    btn.disabled = false;
+  } catch (e) {
+    $<HTMLButtonElement>("#doc-disparar").disabled = false;
+    aviso(mensajeDeError(e));
+  }
+});
+
+for (const sel of ["#in-pagina", "#in-pagina-galeria"]) {
+  $<HTMLInputElement>(sel).addEventListener("change", async (ev) => {
     const input = ev.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     input.value = "";
-    agregarArchivos(files, sel === "#in-camara");
+    for (const f of files) {
+      try {
+        await agregarPagina(await prepararArchivo(f));
+      } catch (e) {
+        aviso(mensajeDeError(e), 4000);
+      }
+    }
   });
 }
 
-// Al desmarcar "mismo documento", el grupo de páginas tomadas con la cámara se envía a la IA
-$<HTMLInputElement>("#chk-mismo").addEventListener("change", (ev) => {
-  if ((ev.target as HTMLInputElement).checked) return;
-  trabajos.forEach((t) => { if (t.estado === "espera") t.estado = "pendiente"; });
-  grupoCamara = null;
-  guardarPronto();
-  renderCola();
+$("#doc-guardar").addEventListener("click", async () => {
+  if (!doc || !doc.fotoIds.length) return;
+  const n = doc.fotoIds.length;
+  doc.estado = "pendiente";
+  doc.nombre = `Documento de ${n} página(s)`;
+  doc.creado = Math.max(Date.now(), (registros.at(-1)?.creado ?? 0) + 1);
+  doc = null;
+  await guardarTrabajos(trabajos);
+  cerrarDocumento();
+  autorizado = true;
+  pausado = false;
+  aviso(`✔ Documento guardado (${n} página(s)); la IA lo está leyendo…`, 3500);
   procesarCola();
 });
 
-// Arrastrar y soltar
+async function cancelarDocumento() {
+  if (doc && doc.fotoIds.length) {
+    const ok = await confirmar(`¿Descartar las ${doc.fotoIds.length} página(s) tomadas?`, "Descartar", true);
+    if (!ok) return;
+  }
+  if (doc) {
+    const d = doc;
+    trabajos = trabajos.filter((t) => t !== d);
+    for (const f of d.fotoIds) await borrarFoto(f);
+    await guardarTrabajos(trabajos);
+  }
+  doc = null;
+  cerrarDocumento();
+}
+$("#doc-cancelar").addEventListener("click", cancelarDocumento);
+// Botón "atrás" de Android / tecla Esc: preguntar en vez de perder las páginas
+dlgDoc.addEventListener("cancel", (ev) => {
+  ev.preventDefault();
+  cancelarDocumento();
+});
+
+// ---------- Arrastrar y pegar (PC) ----------
 let profundidad = 0;
 window.addEventListener("dragenter", (e) => {
   if (!e.dataTransfer?.types.includes("Files")) return;
@@ -432,52 +608,94 @@ window.addEventListener("drop", (e) => {
   document.body.classList.remove("arrastrando");
   const files = Array.from(e.dataTransfer?.files ?? []);
   const excel = files.find((f) => f.name.toLowerCase().endsWith(".xlsx"));
-  if (excel) {
-    const dt = new DataTransfer();
-    dt.items.add(excel);
-    const inp = $<HTMLInputElement>("#in-excel");
-    inp.files = dt.files;
-    inp.dispatchEvent(new Event("change"));
-  }
-  agregarArchivos(files.filter((f) => f !== excel));
+  if (excel) importarArchivoExcel(excel);
+  const resto = files.filter((f) => f !== excel);
+  if (dlgDoc.open) resto.forEach(async (f) => agregarPagina(await prepararArchivo(f)));
+  else agregarArchivos(resto);
 });
-// Pegar imágenes
 window.addEventListener("paste", (e) => {
   const files = Array.from(e.clipboardData?.files ?? []);
-  if (files.length) { e.preventDefault(); agregarArchivos(files); }
+  if (!files.length) return;
+  e.preventDefault();
+  if (dlgDoc.open) files.forEach(async (f) => agregarPagina(await prepararArchivo(f)));
+  else agregarArchivos(files);
 });
 
 // ---------- Ajustes ----------
-const dlg = $<HTMLDialogElement>("#dlg-ajustes");
+const dlgAj = $<HTMLDialogElement>("#dlg-ajustes");
 $<HTMLSelectElement>("#aj-modelo").innerHTML = MODELOS.map((m) => `<option value="${m.id}">${m.nombre}</option>`).join("");
 function abrirAjustes() {
+  $("#aj-claude").hidden = !plataforma.enClaude;
+  $("#aj-api").hidden = plataforma.enClaude;
+  $<HTMLSelectElement>("#aj-precision").value = ajustes.precision;
   $<HTMLInputElement>("#aj-key").value = ajustes.apiKey;
   $<HTMLSelectElement>("#aj-modelo").value = ajustes.modelo;
   $<HTMLInputElement>("#aj-paralelo").value = String(ajustes.paralelo);
-  dlg.showModal();
+  dlgAj.showModal();
 }
 $("#btn-ajustes").addEventListener("click", abrirAjustes);
-dlg.addEventListener("close", () => {
-  if (dlg.returnValue !== "ok") return;
+dlgAj.addEventListener("close", () => {
+  if (dlgAj.returnValue !== "ok") return;
+  dlgAj.returnValue = "";
   ajustes = {
     apiKey: $<HTMLInputElement>("#aj-key").value.trim(),
     modelo: $<HTMLSelectElement>("#aj-modelo").value,
     paralelo: Math.min(10, Math.max(1, Number($<HTMLInputElement>("#aj-paralelo").value) || 3)),
+    precision: $<HTMLSelectElement>("#aj-precision").value === "complex" ? "complex" : "default",
   };
   guardarAjustes(ajustes);
+  pintarModo();
   procesarCola();
 });
 
+function pintarModo() {
+  const m = $("#modo");
+  if (plataforma.enClaude) {
+    if (!plataforma.sample) m.textContent = "⚠ Tu cuenta no permite que esta app use Claude. Puedes cargar y editar registros a mano.";
+    else if (!plataforma.maxImagenes) m.textContent = "⚠ Esta vista de Claude no permite enviar fotos. Ábrela en el navegador o actualiza la app de Claude.";
+    else m.textContent = "✔ La IA usa tu cuenta de Claude." + (plataforma.db ? " Los registros se guardan en claude.ai y se ven en todos tus dispositivos." : "");
+  } else {
+    m.textContent = ajustes.apiKey
+      ? "✔ IA con tu clave de API. Los registros se guardan en este navegador."
+      : "⚠ Falta la clave de API (⚙ Ajustes). Para usar tu suscripción de Claude abre la versión de claude.ai.";
+  }
+}
+
 // ---------- Inicio ----------
 (async () => {
-  pedirPersistencia();
-  registros = await cargarRegistros();
-  trabajos = await cargarTrabajos();
-  // Trabajos que quedaron a medias al cerrar la página vuelven a la cola
-  trabajos.forEach((t) => { if (t.estado === "procesando" || t.estado === "espera") t.estado = "pendiente"; });
-  ordenar();
   renderTabla();
+  pedirPersistencia();
+  trabajos = await cargarTrabajos().catch(() => []);
+  trabajos.forEach((t) => { if (t.estado === "procesando") t.estado = "pendiente"; });
   renderCola();
-  if (!ajustes.apiKey) abrirAjustes();
+
+  plataforma = await detectarPlataforma();
+  if (plataforma.db) {
+    const a = new AlmacenClaude(plataforma.db);
+    a.onError = (msg) => aviso(msg, 6000);
+    almacen = a;
+  }
+  try {
+    btnCompartir.hidden =
+      plataforma.enClaude ||
+      !navigator.canShare?.({ files: [new File([""], "x.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] });
+  } catch { /* sin soporte */ }
+  if (plataforma.enClaude) $<HTMLInputElement>("#in-archivos").accept = "image/*";
+
+  registros = await almacen.iniciar(fusionarRemotos);
+  ordenar();
+  listo = true;
+  pintarModo();
+  renderTabla();
+  if (!plataforma.enClaude) autorizado = true;
+  if (!plataforma.enClaude && !ajustes.apiKey) abrirAjustes();
+  // Documento con páginas a medio tomar (por ejemplo, si el celular cerró la página)
+  const enCurso = trabajos.find((t) => t.estado === "espera");
+  if (enCurso?.fotoIds.length) {
+    aviso(`Tienes un documento sin terminar (${enCurso.fotoIds.length} página(s)).`, 4000);
+    abrirDocumento();
+  } else if (enCurso) {
+    trabajos = trabajos.filter((t) => t !== enCurso);
+  }
   procesarCola();
 })();

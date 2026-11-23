@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Registro de Dictámenes</title>
+    <meta name="claude:viewport-fit-sides" content="cover" />
     <meta name="theme-color" content="#1e3a8a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -10,55 +12,96 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icono-192.png" />
     <link rel="apple-touch-icon" href="/icono-192.png" />
-    <title>Registro de Dictámenes</title>
   </head>
   <body>
-    <header>
+    <header id="cabecera">
       <h1>Registro de Dictámenes</h1>
       <button id="btn-ajustes" type="button">⚙ Ajustes</button>
     </header>
 
-    <section id="carga" class="panel">
-      <label class="chk"><input id="chk-mismo" type="checkbox" /><span>Las próximas fotos son páginas de <b>un mismo</b> documento</span></label>
-      <p class="ayuda">Cada foto = un registro. Usa <b>Galería</b> para elegir muchas fotos de un tiro. En PC también puedes arrastrarlas o pegarlas (Ctrl+V).</p>
-      <div id="cola"></div>
-    </section>
+    <main id="contenido">
+      <section id="estado" class="panel">
+        <p id="modo" class="ayuda">Cargando…</p>
+        <div id="cola"></div>
+      </section>
 
-    <section class="panel">
-      <div class="barra">
-        <label class="btn">⬆ Importar Excel
+      <section class="panel">
+        <div class="barra">
+          <label class="btn" for="in-excel">⬆ Importar Excel</label>
           <input id="in-excel" type="file" accept=".xlsx" hidden />
-        </label>
-        <button id="btn-exportar" class="btn primario" type="button">⬇ Descargar Excel</button>
-        <button id="btn-compartir" class="btn" type="button" hidden>📤 Compartir Excel</button>
-        <button id="btn-agregar" class="btn" type="button">＋ Fila manual</button>
-        <input id="filtro" type="search" placeholder="Buscar…" />
-        <span id="contador"></span>
+          <button id="btn-exportar" class="btn primario" type="button">⬇ Descargar Excel</button>
+          <button id="btn-compartir" class="btn" type="button" hidden>📤 Compartir Excel</button>
+          <button id="btn-agregar" class="btn" type="button">＋ Fila manual</button>
+          <input id="filtro" type="search" placeholder="Buscar…" aria-label="Buscar registros" />
+          <span id="contador"></span>
+        </div>
+        <div class="tabla-cont">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Foto</th><th>Carrera</th><th>N° Dictamen</th><th>Descripción</th><th>Revisar</th><th></th></tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+          <p id="vacio" class="ayuda" hidden>Aún no hay registros. Toca <b>📷 Nuevo documento</b> para fotografiar uno, o <b>🖼 Galería</b> para elegir muchas fotos de un tiro.</p>
+        </div>
+      </section>
+    </main>
+
+    <nav id="barra-inferior">
+      <button id="btn-nuevo" class="btn grande primario" type="button">📷 Nuevo documento</button>
+      <label class="btn grande" for="in-archivos">🖼 Galería</label>
+      <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
+    </nav>
+
+    <!-- Documento en curso: se toman todas las páginas y se guarda como UN documento -->
+    <dialog id="dlg-doc" class="pantalla">
+      <div class="doc-cab">
+        <b id="doc-titulo">Documento nuevo</b>
+        <span id="doc-ayuda" class="ayuda">Toma todas las páginas y toca Guardar.</span>
       </div>
-      <div class="tabla-cont">
-        <table>
-          <thead>
-            <tr><th>#</th><th>Foto</th><th>Carrera</th><th>N° Dictamen</th><th>Descripción</th><th>Revisar</th><th></th></tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
+      <div class="visor-cont">
+        <video id="visor" playsinline muted autoplay hidden></video>
+        <div id="sin-visor">
+          <p>Toca <b>📷 Tomar página</b> por cada hoja del documento.<br />Cuando termines, toca <b>✔ Guardar</b>.</p>
+        </div>
       </div>
-    </section>
+      <div id="paginas"></div>
+      <div class="doc-pie">
+        <button id="doc-cancelar" class="btn" type="button">✕ Cancelar</button>
+        <button id="doc-disparar" class="btn grande primario" type="button" hidden>📸</button>
+        <label id="doc-tomar" class="btn grande primario" for="in-pagina">📷 Tomar página</label>
+        <input id="in-pagina" type="file" accept="image/*" capture="environment" hidden />
+        <button id="doc-guardar" class="btn grande exito" type="button" disabled>✔ Guardar</button>
+      </div>
+      <label class="enlace" for="in-pagina-galeria">o agregar páginas desde la galería</label>
+      <input id="in-pagina-galeria" type="file" accept="image/*" multiple hidden />
+    </dialog>
 
     <dialog id="dlg-ajustes">
       <form method="dialog">
         <h2>Ajustes</h2>
-        <label>Clave de API de Anthropic
-          <input id="aj-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
-        </label>
-        <p class="ayuda">Se guarda solo en este navegador y se envía únicamente a la API de Anthropic. Obtén una en console.anthropic.com.</p>
-        <label>Modelo
-          <select id="aj-modelo"></select>
-        </label>
-        <label>Fotos procesadas en paralelo
-          <input id="aj-paralelo" type="number" min="1" max="10" />
-        </label>
-        <div class="botones"><button value="ok" class="btn primario">Guardar</button><button value="cancel" class="btn">Cancelar</button></div>
+        <div id="aj-claude" hidden>
+          <p>La IA usa <b>tu cuenta de Claude</b> (tu suscripción). No necesitas clave de API.</p>
+          <label>Precisión de lectura
+            <select id="aj-precision">
+              <option value="default">Normal (gasta menos de tu límite de uso)</option>
+              <option value="complex">Alta (modelo más capaz, gasta más)</option>
+            </select>
+          </label>
+        </div>
+        <div id="aj-api" hidden>
+          <p class="ayuda">Esta copia está fuera de claude.ai, así que necesita una clave de API de Anthropic (console.anthropic.com). Para usar tu suscripción de Claude abre la versión de claude.ai.</p>
+          <label>Clave de API de Anthropic
+            <input id="aj-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
+          </label>
+          <label>Modelo
+            <select id="aj-modelo"></select>
+          </label>
+          <label>Fotos procesadas en paralelo
+            <input id="aj-paralelo" type="number" min="1" max="10" />
+          </label>
+        </div>
+        <div class="botones"><button value="ok" class="btn primario">Guardar</button><button value="cancel" class="btn">Cerrar</button></div>
         <hr />
         <button id="btn-borrar" class="btn peligro" type="button">Borrar todos los registros</button>
       </form>
@@ -69,16 +112,7 @@
       <div id="foto-grande"></div>
     </dialog>
 
-    <nav id="barra-inferior">
-      <label class="btn grande primario">📷 Cámara
-        <input id="in-camara" type="file" accept="image/*" capture="environment" hidden />
-      </label>
-      <label class="btn grande primario">🖼 Galería
-        <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
-      </label>
-    </nav>
     <div id="aviso" role="status"></div>
-
     <div id="soltar">Suelta las fotos aquí</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -80,10 +80,12 @@ export interface Ajustes {
   apiKey: string;
   modelo: string;
   paralelo: number;
+  /** Solo en claude.ai: nivel de modelo de la suscripción. */
+  precision: "default" | "complex";
 }
 const AJ_KEY = "registro-dictamenes:ajustes";
 export function cargarAjustes(): Ajustes {
-  const def: Ajustes = { apiKey: "", modelo: "claude-opus-5-5", paralelo: 3 };
+  const def: Ajustes = { apiKey: "", modelo: "claude-opus-5-5", paralelo: 3, precision: "default" };
   try {
     const raw = localStorage.getItem(AJ_KEY);
     return raw ? { ...def, ...JSON.parse(raw) } : def;

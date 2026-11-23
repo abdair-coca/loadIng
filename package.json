@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:artifact": "vite build --config vite.artifact.config.ts && node scripts/artifact.mjs"
   },
   "repository": {
     "type": "git",
@@ -26,7 +27,8 @@
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "vite-plugin-singlefile": "^2.3.4"
   },
   "private": true,
   "type": "module"
