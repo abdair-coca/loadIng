@@ -1,0 +1,33 @@
+{
+  "name": "registro-dictamenes",
+  "version": "1.0.0",
+  "description": "Fotos de documentos -> IA -> Excel de registro (sin backend, datos en el navegador)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdair-coca/loadIng.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/abdair-coca/loadIng/issues"
+  },
+  "homepage": "https://github.com/abdair-coca/loadIng#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.13.0",
+    "exceljs": "^4.4.0",
+    "idb-keyval": "^6.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "private": true,
+  "type": "module"
+}

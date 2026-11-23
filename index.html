@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Registro de Dictámenes</title>
+  </head>
+  <body>
+    <header>
+      <h1>Registro de Dictámenes</h1>
+      <button id="btn-ajustes" type="button">⚙ Ajustes</button>
+    </header>
+
+    <section id="carga" class="panel">
+      <div class="botones">
+        <label class="btn primario">📷 Tomar foto
+          <input id="in-camara" type="file" accept="image/*" capture="environment" multiple hidden />
+        </label>
+        <label class="btn primario">🖼 Subir fotos / PDF
+          <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
+        </label>
+        <label class="chk"><input id="chk-mismo" type="checkbox" /> Las fotos de esta carga son páginas de <b>un mismo</b> documento</label>
+      </div>
+      <p class="ayuda">También puedes <b>arrastrar</b> muchas fotos aquí o <b>pegarlas</b> (Ctrl+V). Cada foto = un registro (salvo que marques la casilla).</p>
+      <div id="cola"></div>
+    </section>
+
+    <section class="panel">
+      <div class="barra">
+        <label class="btn">⬆ Importar Excel
+          <input id="in-excel" type="file" accept=".xlsx" hidden />
+        </label>
+        <button id="btn-exportar" class="btn primario" type="button">⬇ Exportar Excel</button>
+        <button id="btn-agregar" class="btn" type="button">＋ Fila manual</button>
+        <input id="filtro" type="search" placeholder="Buscar…" />
+        <span id="contador"></span>
+        <button id="btn-borrar" class="btn peligro" type="button">Borrar todo</button>
+      </div>
+      <div class="tabla-cont">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Foto</th><th>Carrera</th><th>N° Dictamen</th><th>Descripción</th><th>Revisar</th><th></th></tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <dialog id="dlg-ajustes">
+      <form method="dialog">
+        <h2>Ajustes</h2>
+        <label>Clave de API de Anthropic
+          <input id="aj-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
+        </label>
+        <p class="ayuda">Se guarda solo en este navegador y se envía únicamente a la API de Anthropic. Obtén una en console.anthropic.com.</p>
+        <label>Modelo
+          <select id="aj-modelo"></select>
+        </label>
+        <label>Fotos procesadas en paralelo
+          <input id="aj-paralelo" type="number" min="1" max="10" />
+        </label>
+        <div class="botones"><button value="ok" class="btn primario">Guardar</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-foto">
+      <form method="dialog"><button class="btn cerrar">✕</button></form>
+      <div id="foto-grande"></div>
+    </dialog>
+
+    <div id="soltar">Suelta las fotos aquí</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
