@@ -26,6 +26,16 @@ let ajustes = cargarAjustes();
 let activos = 0;
 let completadosSesion = 0;
 
+// ---------- Aviso breve ----------
+let tAviso = 0;
+function aviso(txt: string) {
+  const el = $("#aviso");
+  el.textContent = txt;
+  el.classList.add("visible");
+  clearTimeout(tAviso);
+  tAviso = window.setTimeout(() => el.classList.remove("visible"), 2500);
+}
+
 // ---------- Guardado ----------
 let tGuardar = 0;
 function guardarPronto() {
@@ -85,12 +95,12 @@ function renderTabla() {
       return `<tr data-id="${r.id}" class="${r.revisar ? "revisar" : ""}">
         <td class="n">${n}</td>
         <td class="foto">${r.fotoIds.map((f) => `<img data-foto="${f}" alt="" />`).join("")}</td>
-        <td class="car"><textarea data-campo="carrera" rows="${filasCar}" title="Una línea por dependencia">${esc(r.carrera)}</textarea></td>
-        <td class="dic"><input type="text" data-campo="dictamen" value="${esc(r.dictamen)}" /></td>
-        <td><textarea data-campo="descripcion" rows="2">${esc(r.descripcion)}</textarea></td>
+        <td class="car" data-label="Carrera"><textarea data-campo="carrera" rows="${filasCar}" title="Una línea por dependencia">${esc(r.carrera)}</textarea></td>
+        <td class="dic" data-label="N° Dictamen"><input type="text" data-campo="dictamen" value="${esc(r.dictamen)}" /></td>
+        <td data-label="Descripción"><textarea data-campo="descripcion" rows="2">${esc(r.descripcion)}</textarea></td>
         <td class="rev"><label><input type="checkbox" data-campo="revisar" ${r.revisar ? "checked" : ""}/> revisar</label>
           ${r.nota ? `<span class="nota">${esc(r.nota)}</span>` : ""}</td>
-        <td class="acc"><button data-acc="arriba" title="Subir">↑</button><button data-acc="abajo" title="Bajar">↓</button><button data-acc="borrar" title="Eliminar">🗑</button></td>
+        <td class="acc"><button data-acc="arriba" title="Subir" aria-label="Subir">↑</button><button data-acc="abajo" title="Bajar" aria-label="Bajar">↓</button><button data-acc="borrar" title="Eliminar" aria-label="Eliminar">🗑</button></td>
       </tr>`;
     })
     .join("");
@@ -182,6 +192,7 @@ $("#btn-borrar").addEventListener("click", async () => {
   if (!registros.length && !trabajos.length) return;
   if (!confirm(`¿Borrar los ${registros.length} registros y sus fotos? Exporta el Excel antes si lo necesitas.`)) return;
   if (!confirm("¿Seguro? Esto no se puede deshacer.")) return;
+  $<HTMLDialogElement>("#dlg-ajustes").close();
   registros = [];
   trabajos = trabajos.filter((t) => t.estado === "procesando");
   await guardarRegistros(registros);
@@ -197,9 +208,25 @@ $("#btn-exportar").addEventListener("click", async () => {
   const blob = await exportarExcel(registros);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `registro_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.download = nombreExcel();
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+
+const nombreExcel = () => `registro_${new Date().toISOString().slice(0, 10)}.xlsx`;
+const btnCompartir = $<HTMLButtonElement>("#btn-compartir");
+try {
+  btnCompartir.hidden = !navigator.canShare?.({ files: [new File([""], "x.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] });
+} catch { /* sin soporte */ }
+btnCompartir.addEventListener("click", async () => {
+  if (!registros.length) return alert("No hay registros para compartir.");
+  const blob = await exportarExcel(registros);
+  const file = new File([blob], nombreExcel(), { type: blob.type });
+  try {
+    await navigator.share({ files: [file], title: "Registro de dictámenes" });
+  } catch (e) {
+    if ((e as Error).name !== "AbortError") alert("No se pudo compartir: " + (e as Error).message);
+  }
 });
 
 $<HTMLInputElement>("#in-excel").addEventListener("change", async (ev) => {
@@ -221,13 +248,18 @@ $<HTMLInputElement>("#in-excel").addEventListener("change", async (ev) => {
 });
 
 // ---------- Carga de fotos y cola de la IA ----------
-async function agregarArchivos(files: File[]) {
+let mismoAcumular = false;
+let grupoCamara: Trabajo | null = null;
+
+async function agregarArchivos(files: File[], desdeCamara = false) {
   files = files.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf" || /\.(pdf|jpe?g|png|webp|heic)$/i.test(f.name));
   if (!files.length) return;
   if (!ajustes.apiKey) {
     alert("Primero ingresa tu clave de API en ⚙ Ajustes. Las fotos quedarán en cola.");
   }
-  const mismo = $<HTMLInputElement>("#chk-mismo").checked && files.length > 1;
+  const marcado = $<HTMLInputElement>("#chk-mismo").checked;
+  mismoAcumular = desdeCamara && marcado;
+  const mismo = marcado && (files.length > 1 || mismoAcumular);
   const base = Date.now();
   const preparados: { id: string; nombre: string }[] = [];
   $("#cola").insertAdjacentHTML("afterbegin", `<p id="preparando">Preparando ${files.length} archivo(s)…</p>`);
@@ -241,7 +273,15 @@ async function agregarArchivos(files: File[]) {
       trabajos.push({ id: uid(), nombre: f.name, fotoIds: [], estado: "error", error: mensajeDeError(e), creado: base });
     }
   }
-  if (mismo && preparados.length) {
+  if (mismoAcumular && preparados.length) {
+    // Cámara + "mismo documento": cada foto se suma al mismo grupo, que espera hasta desmarcar la casilla
+    if (!grupoCamara || !trabajos.includes(grupoCamara) || grupoCamara.estado !== "espera") {
+      grupoCamara = { id: uid(), nombre: "Documento de varias páginas", fotoIds: [], estado: "espera", creado: base };
+      trabajos.push(grupoCamara);
+    }
+    grupoCamara.fotoIds.push(...preparados.map((p) => p.id));
+    grupoCamara.nombre = `Documento de ${grupoCamara.fotoIds.length} página(s)`;
+  } else if (mismo && preparados.length) {
     trabajos.push({
       id: uid(), nombre: preparados.map((p) => p.nombre).join(", "), fotoIds: preparados.map((p) => p.id),
       estado: "pendiente", creado: base,
@@ -251,8 +291,14 @@ async function agregarArchivos(files: File[]) {
       trabajos.push({ id: uid(), nombre: p.nombre, fotoIds: [p.id], estado: "pendiente", creado: base + i }),
     );
   }
-  $<HTMLInputElement>("#chk-mismo").checked = false;
+  // En modo "mismo documento" con la cámara, las fotos se van juntando hasta desmarcar la casilla
+  if (!(mismoAcumular && $<HTMLInputElement>("#chk-mismo").checked)) $<HTMLInputElement>("#chk-mismo").checked = false;
   await guardarTrabajos(trabajos);
+  if (mismoAcumular && grupoCamara) {
+    aviso(`📄 Página ${grupoCamara.fotoIds.length} agregada. Toma la siguiente o desmarca la casilla para enviar.`);
+  } else if (preparados.length) {
+    aviso(preparados.length === 1 ? "✔ Foto agregada. La IA la está leyendo…" : `✔ ${preparados.length} fotos agregadas`);
+  }
   renderCola();
   procesarCola();
 }
@@ -318,6 +364,8 @@ function renderCola() {
   const c = (e: string) => trabajos.filter((t) => t.estado === e).length;
   const pend = c("pendiente"), proc = c("procesando"), err = c("error");
   const visibles = trabajos.filter((t) => t.estado !== "pendiente").slice(0, 50);
+  const etiqueta = (t: Trabajo) =>
+    t.estado === "procesando" ? "⏳ procesando" : t.estado === "espera" ? "📄 juntando páginas (desmarca la casilla para enviar)" : "⚠ error";
   cola.innerHTML = `
     <div class="cola-res">
       <b>Cola IA:</b> ${proc} procesando · ${pend} en espera · ${completadosSesion} listas · ${err} con error
@@ -326,7 +374,7 @@ function renderCola() {
     </div>
     ${visibles
       .map(
-        (t) => `<div class="trabajo ${t.estado}"><span class="estado">${t.estado === "procesando" ? "⏳ procesando" : "⚠ error"}</span>
+        (t) => `<div class="trabajo ${t.estado}"><span class="estado">${etiqueta(t)}</span>
         <span>${esc(t.nombre)}${t.error ? " — " + esc(t.error) : ""}</span></div>`,
       )
       .join("")}`;
@@ -353,9 +401,19 @@ for (const sel of ["#in-camara", "#in-archivos"]) {
     const input = ev.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     input.value = "";
-    agregarArchivos(files);
+    agregarArchivos(files, sel === "#in-camara");
   });
 }
+
+// Al desmarcar "mismo documento", el grupo de páginas tomadas con la cámara se envía a la IA
+$<HTMLInputElement>("#chk-mismo").addEventListener("change", (ev) => {
+  if ((ev.target as HTMLInputElement).checked) return;
+  trabajos.forEach((t) => { if (t.estado === "espera") t.estado = "pendiente"; });
+  grupoCamara = null;
+  guardarPronto();
+  renderCola();
+  procesarCola();
+});
 
 // Arrastrar y soltar
 let profundidad = 0;
@@ -416,7 +474,7 @@ dlg.addEventListener("close", () => {
   registros = await cargarRegistros();
   trabajos = await cargarTrabajos();
   // Trabajos que quedaron a medias al cerrar la página vuelven a la cola
-  trabajos.forEach((t) => { if (t.estado === "procesando") t.estado = "pendiente"; });
+  trabajos.forEach((t) => { if (t.estado === "procesando" || t.estado === "espera") t.estado = "pendiente"; });
   ordenar();
   renderTabla();
   renderCola();

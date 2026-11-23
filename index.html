@@ -2,7 +2,14 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1e3a8a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Dictámenes" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icono-192.png" />
+    <link rel="apple-touch-icon" href="/icono-192.png" />
     <title>Registro de Dictámenes</title>
   </head>
   <body>
@@ -12,16 +19,8 @@
     </header>
 
     <section id="carga" class="panel">
-      <div class="botones">
-        <label class="btn primario">📷 Tomar foto
-          <input id="in-camara" type="file" accept="image/*" capture="environment" multiple hidden />
-        </label>
-        <label class="btn primario">🖼 Subir fotos / PDF
-          <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
-        </label>
-        <label class="chk"><input id="chk-mismo" type="checkbox" /> Las fotos de esta carga son páginas de <b>un mismo</b> documento</label>
-      </div>
-      <p class="ayuda">También puedes <b>arrastrar</b> muchas fotos aquí o <b>pegarlas</b> (Ctrl+V). Cada foto = un registro (salvo que marques la casilla).</p>
+      <label class="chk"><input id="chk-mismo" type="checkbox" /><span>Las próximas fotos son páginas de <b>un mismo</b> documento</span></label>
+      <p class="ayuda">Cada foto = un registro. Usa <b>Galería</b> para elegir muchas fotos de un tiro. En PC también puedes arrastrarlas o pegarlas (Ctrl+V).</p>
       <div id="cola"></div>
     </section>
 
@@ -30,11 +29,11 @@
         <label class="btn">⬆ Importar Excel
           <input id="in-excel" type="file" accept=".xlsx" hidden />
         </label>
-        <button id="btn-exportar" class="btn primario" type="button">⬇ Exportar Excel</button>
+        <button id="btn-exportar" class="btn primario" type="button">⬇ Descargar Excel</button>
+        <button id="btn-compartir" class="btn" type="button" hidden>📤 Compartir Excel</button>
         <button id="btn-agregar" class="btn" type="button">＋ Fila manual</button>
         <input id="filtro" type="search" placeholder="Buscar…" />
         <span id="contador"></span>
-        <button id="btn-borrar" class="btn peligro" type="button">Borrar todo</button>
       </div>
       <div class="tabla-cont">
         <table>
@@ -59,7 +58,9 @@
         <label>Fotos procesadas en paralelo
           <input id="aj-paralelo" type="number" min="1" max="10" />
         </label>
-        <div class="botones"><button value="ok" class="btn primario">Guardar</button></div>
+        <div class="botones"><button value="ok" class="btn primario">Guardar</button><button value="cancel" class="btn">Cancelar</button></div>
+        <hr />
+        <button id="btn-borrar" class="btn peligro" type="button">Borrar todos los registros</button>
       </form>
     </dialog>
 
@@ -67,6 +68,16 @@
       <form method="dialog"><button class="btn cerrar">✕</button></form>
       <div id="foto-grande"></div>
     </dialog>
+
+    <nav id="barra-inferior">
+      <label class="btn grande primario">📷 Cámara
+        <input id="in-camara" type="file" accept="image/*" capture="environment" hidden />
+      </label>
+      <label class="btn grande primario">🖼 Galería
+        <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
+      </label>
+    </nav>
+    <div id="aviso" role="status"></div>
 
     <div id="soltar">Suelta las fotos aquí</div>
     <script type="module" src="/src/main.ts"></script>

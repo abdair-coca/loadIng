@@ -17,7 +17,7 @@ export interface Registro {
   creado: number;
 }
 
-export type EstadoTrabajo = "pendiente" | "procesando" | "listo" | "error";
+export type EstadoTrabajo = "espera" | "pendiente" | "procesando" | "listo" | "error";
 
 export interface Trabajo {
   id: string;
