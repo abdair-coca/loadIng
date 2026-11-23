@@ -16,7 +16,8 @@ const out = [
   '<meta name="claude:viewport-fit-sides" content="cover">',
   ...styles,
   contenido,
-  ...scripts,
+  // El código de las librerías trae el carácter U+FFFD literal; se escribe como escape JS (mismo valor).
+  ...scripts.map((sc) => sc.replaceAll("\uFFFD", "\\uFFFD")),
 ].join("\n");
 writeFileSync("dist-artifact/registro-dictamenes.html", out);
 console.log(`dist-artifact/registro-dictamenes.html (${(out.length / 1024).toFixed(0)} KB)`);

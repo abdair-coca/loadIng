@@ -1,6 +1,7 @@
 # Registro de Dictámenes
 
 > **Usar con tu suscripción de Claude (sin clave de API):** usa la versión publicada en claude.ai
+> (https://claude.ai/artifact/Jwyj6PH8Y7kjpUU9HFrPU4)
 > (`npm run build:artifact` genera `dist-artifact/registro-dictamenes.html`, que se publica como artifact).
 > Dentro de claude.ai la IA usa tu cuenta de Claude y los registros se sincronizan entre celular y PC.
 > Fuera de claude.ai (Vercel) la app necesita una clave de API de Anthropic, porque la suscripción
