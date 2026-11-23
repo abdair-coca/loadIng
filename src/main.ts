@@ -21,6 +21,9 @@ import { type Almacen, AlmacenLocal, AlmacenClaude } from "./almacen";
 import { preguntar, confirmar, aviso } from "./ui";
 import { abrirCamara, cerrarCamara, capturar } from "./camara";
 
+/** Versión publicada en claude.ai, donde la IA usa la suscripción de Claude del usuario. */
+const URL_CLAUDE = "https://claude.ai/artifact/Jwyj6PH8Y7kjpUU9HFrPU4";
+
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
 let registros: Registro[] = [];
@@ -484,6 +487,7 @@ async function abrirDocumento() {
   $("#sin-visor").hidden = conVisor;
   $("#doc-disparar").hidden = !conVisor;
   $("#doc-tomar").hidden = conVisor;
+  $("#doc-galeria").hidden = !conVisor;
 }
 
 function cerrarDocumento() {
@@ -688,7 +692,17 @@ function pintarModo() {
   pintarModo();
   renderTabla();
   if (!plataforma.enClaude) autorizado = true;
-  if (!plataforma.enClaude && !ajustes.apiKey) abrirAjustes();
+  if (!plataforma.enClaude && !ajustes.apiKey) {
+    // Fuera de claude.ai no se puede usar la suscripción: se abre la versión de Claude.
+    // (Quien tenga clave de API puede quedarse aquí abriendo la página con ?clave)
+    if (new URLSearchParams(location.search).has("clave")) abrirAjustes();
+    else {
+      $<HTMLAnchorElement>("#ir-claude-enlace").href = URL_CLAUDE;
+      $("#ir-claude").hidden = false;
+      location.replace(URL_CLAUDE);
+      return;
+    }
+  }
   // Documento con páginas a medio tomar (por ejemplo, si el celular cerró la página)
   const enCurso = trabajos.find((t) => t.estado === "espera");
   if (enCurso?.fotoIds.length) {

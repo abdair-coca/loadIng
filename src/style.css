@@ -133,6 +133,11 @@ dialog.pantalla[open] { display: flex; }
 .doc-pie { display: flex; gap: 8px; align-items: stretch; }
 .doc-pie .btn:first-child { flex: 0 0 auto; }
 #doc-disparar { font-size: 26px; }
+.nota-camara { font-size: 13px; opacity: 0.8; margin-top: 12px; }
+#ir-claude { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; background: var(--fondo); text-align: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#ir-claude[hidden] { display: none; }
+#ir-claude a { text-decoration: none; display: inline-flex; min-width: 240px; }
 .enlace { text-align: center; color: var(--acento); font-size: 14px; text-decoration: underline; cursor: pointer; padding: 4px; }
 
 /* Diálogos */

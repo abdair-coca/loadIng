@@ -62,18 +62,19 @@
       <div class="visor-cont">
         <video id="visor" playsinline muted autoplay hidden></video>
         <div id="sin-visor">
-          <p>Toca <b>📷 Tomar página</b> por cada hoja del documento.<br />Cuando termines, toca <b>✔ Guardar</b>.</p>
+          <p>Toca <b>📷 Agregar página</b> y elige <b>Cámara</b> (o <b>Fotos</b>) por cada hoja.<br />Cuando termines, toca <b>✔ Guardar</b>.</p>
+          <p class="nota-camara">Si la cámara no se abre, saca las fotos con la cámara del teléfono y luego agrégalas desde <b>Fotos</b>.</p>
         </div>
       </div>
       <div id="paginas"></div>
       <div class="doc-pie">
         <button id="doc-cancelar" class="btn" type="button">✕ Cancelar</button>
         <button id="doc-disparar" class="btn grande primario" type="button" hidden>📸</button>
-        <label id="doc-tomar" class="btn grande primario" for="in-pagina">📷 Tomar página</label>
-        <input id="in-pagina" type="file" accept="image/*" capture="environment" hidden />
+        <label id="doc-tomar" class="btn grande primario" for="in-pagina">📷 Agregar página</label>
+        <input id="in-pagina" type="file" accept="image/*" multiple hidden />
         <button id="doc-guardar" class="btn grande exito" type="button" disabled>✔ Guardar</button>
       </div>
-      <label class="enlace" for="in-pagina-galeria">o agregar páginas desde la galería</label>
+      <label id="doc-galeria" class="enlace" for="in-pagina-galeria" hidden>o agregar páginas desde la galería</label>
       <input id="in-pagina-galeria" type="file" accept="image/*" multiple hidden />
     </dialog>
 
@@ -112,6 +113,13 @@
       <div id="foto-grande"></div>
     </dialog>
 
+    <div id="ir-claude" hidden>
+      <div>
+        <h2>Abriendo en Claude…</h2>
+        <p>Esta app usa tu suscripción de Claude, así que funciona dentro de claude.ai.</p>
+        <p><a id="ir-claude-enlace" class="btn grande primario" href="#">Abrir en Claude</a></p>
+      </div>
+    </div>
     <div id="aviso" role="status"></div>
     <div id="soltar">Suelta las fotos aquí</div>
     <script type="module" src="/src/main.ts"></script>
