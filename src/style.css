@@ -133,7 +133,9 @@ dialog.pantalla[open] { display: flex; }
 .doc-pie { display: flex; gap: 8px; align-items: stretch; }
 .doc-pie .btn:first-child { flex: 0 0 auto; }
 #doc-disparar { font-size: 26px; }
-.nota-camara { font-size: 13px; opacity: 0.8; margin-top: 12px; }
+.nota-camara { font-size: 13px; opacity: 0.85; margin: 16px 0 6px; line-height: 1.45; }
+.url-claude { font-size: 13px; user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; margin: 0 0 8px; }
+#sin-camara .btn { color: var(--texto); }
 #ir-claude { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; background: var(--fondo); text-align: center;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 #ir-claude[hidden] { display: none; }

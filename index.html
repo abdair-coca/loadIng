@@ -42,15 +42,13 @@
             </thead>
             <tbody id="tbody"></tbody>
           </table>
-          <p id="vacio" class="ayuda" hidden>Aún no hay registros. Toca <b>📷 Nuevo documento</b> para fotografiar uno, o <b>🖼 Galería</b> para elegir muchas fotos de un tiro.</p>
+          <p id="vacio" class="ayuda" hidden>Aún no hay registros. Toca <b>📷 Nuevo documento</b> y fotografía sus páginas con la cámara.</p>
         </div>
       </section>
     </main>
 
     <nav id="barra-inferior">
       <button id="btn-nuevo" class="btn grande primario" type="button">📷 Nuevo documento</button>
-      <label class="btn grande" for="in-archivos">🖼 Galería</label>
-      <input id="in-archivos" type="file" accept="image/*,application/pdf" multiple hidden />
     </nav>
 
     <!-- Documento en curso: se toman todas las páginas y se guarda como UN documento -->
@@ -62,20 +60,23 @@
       <div class="visor-cont">
         <video id="visor" playsinline muted autoplay hidden></video>
         <div id="sin-visor">
-          <p>Toca <b>📷 Agregar página</b> y elige <b>Cámara</b> (o <b>Fotos</b>) por cada hoja.<br />Cuando termines, toca <b>✔ Guardar</b>.</p>
-          <p class="nota-camara">Si la cámara no se abre, saca las fotos con la cámara del teléfono y luego agrégalas desde <b>Fotos</b>.</p>
+          <p>Toca <b>📷 Tomar página</b> por cada hoja del documento.<br />Cuando termines, toca <b>✔ Guardar</b>.</p>
+          <div id="sin-camara" hidden>
+            <p class="nota-camara">¿Se abre la galería en vez de la cámara? La app de Claude no deja usar la cámara a esta página.
+              Abre este enlace en <b>Chrome</b> o <b>Safari</b> (con tu cuenta de Claude):</p>
+            <p class="url-claude"><span id="url-claude"></span></p>
+            <button id="btn-copiar-url" type="button" class="btn chico">Copiar enlace</button>
+          </div>
         </div>
       </div>
       <div id="paginas"></div>
       <div class="doc-pie">
         <button id="doc-cancelar" class="btn" type="button">✕ Cancelar</button>
         <button id="doc-disparar" class="btn grande primario" type="button" hidden>📸</button>
-        <label id="doc-tomar" class="btn grande primario" for="in-pagina">📷 Agregar página</label>
-        <input id="in-pagina" type="file" accept="image/*" multiple hidden />
+        <label id="doc-tomar" class="btn grande primario" for="in-pagina">📷 Tomar página</label>
+        <input id="in-pagina" type="file" accept="image/*" capture="environment" hidden />
         <button id="doc-guardar" class="btn grande exito" type="button" disabled>✔ Guardar</button>
       </div>
-      <label id="doc-galeria" class="enlace" for="in-pagina-galeria" hidden>o agregar páginas desde la galería</label>
-      <input id="in-pagina-galeria" type="file" accept="image/*" multiple hidden />
     </dialog>
 
     <dialog id="dlg-ajustes">

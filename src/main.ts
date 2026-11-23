@@ -410,7 +410,7 @@ $("#cola").addEventListener("click", async (ev) => {
   procesarCola();
 });
 
-// ---------- Galería: muchas fotos de un tiro ----------
+// ---------- Varias fotos a la vez (solo arrastrar/pegar en PC) ----------
 async function agregarArchivos(files: File[]) {
   files = files.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf" || /\.(pdf|jpe?g|png|webp|heic)$/i.test(f.name));
   if (plataforma.enClaude && files.some((f) => f.type === "application/pdf")) {
@@ -460,12 +460,6 @@ async function agregarArchivos(files: File[]) {
   procesarCola();
 }
 
-$<HTMLInputElement>("#in-archivos").addEventListener("change", (ev) => {
-  const input = ev.target as HTMLInputElement;
-  const files = Array.from(input.files ?? []);
-  input.value = "";
-  agregarArchivos(files);
-});
 
 // ---------- Nuevo documento con la cámara: muchas páginas -> UN documento ----------
 const dlgDoc = $<HTMLDialogElement>("#dlg-doc");
@@ -487,7 +481,7 @@ async function abrirDocumento() {
   $("#sin-visor").hidden = conVisor;
   $("#doc-disparar").hidden = !conVisor;
   $("#doc-tomar").hidden = conVisor;
-  $("#doc-galeria").hidden = !conVisor;
+  $("#sin-camara").hidden = !plataforma.enClaude;
 }
 
 function cerrarDocumento() {
@@ -544,7 +538,21 @@ $("#doc-disparar").addEventListener("click", async () => {
   }
 });
 
-for (const sel of ["#in-pagina", "#in-pagina-galeria"]) {
+$("#url-claude").textContent = URL_CLAUDE;
+$("#btn-copiar-url").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(URL_CLAUDE);
+    aviso("Enlace copiado. Pégalo en Chrome o Safari.");
+  } catch {
+    const r = document.createRange();
+    r.selectNodeContents($("#url-claude"));
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(r);
+    aviso("Mantén presionado el enlace para copiarlo.");
+  }
+});
+
+for (const sel of ["#in-pagina"]) {
   $<HTMLInputElement>(sel).addEventListener("change", async (ev) => {
     const input = ev.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
@@ -684,7 +692,6 @@ function pintarModo() {
       plataforma.enClaude ||
       !navigator.canShare?.({ files: [new File([""], "x.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] });
   } catch { /* sin soporte */ }
-  if (plataforma.enClaude) $<HTMLInputElement>("#in-archivos").accept = "image/*";
 
   registros = await almacen.iniciar(fusionarRemotos);
   ordenar();

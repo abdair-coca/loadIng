@@ -25,7 +25,7 @@ Saca fotos (o sube PDFs) de documentos y una IA (Claude) llena automáticamente 
 2. Solo en la versión fuera de claude.ai: en **⚙ Ajustes** pega tu clave de API de Anthropic.
 3. **📷 Nuevo documento**: toma todas las páginas que quieras con la cámara y toca **✔ Guardar**:
    se guarda como UN documento (un registro). Las páginas quedan guardadas aunque se cierre la app.
-   **🖼 Galería**: elige muchas fotos de un tiro; la app pregunta si son documentos distintos o páginas de uno solo.
+   La cámara se abre directo. Dentro de la app de Claude la cámara no está permitida: abre el enlace en Chrome o Safari.
 4. Revisa/corrige las tarjetas (las dudosas salen en amarillo) y **⬇ Descargar Excel** o **📤 Compartir Excel** (WhatsApp, correo…).
 
 ## Desarrollo
