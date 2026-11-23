@@ -20,6 +20,8 @@ import { detectarPlataforma, type Plataforma } from "./plataforma";
 import { type Almacen, AlmacenLocal, AlmacenClaude } from "./almacen";
 import { preguntar, confirmar, aviso } from "./ui";
 import { abrirCamara, cerrarCamara, capturar } from "./camara";
+import { crearLote, leerLote } from "./lote";
+import { docsImportados, marcarImportados } from "./db";
 
 /** Versión publicada en claude.ai, donde la IA usa la suscripción de Claude del usuario. */
 const URL_CLAUDE = "https://claude.ai/artifact/Jwyj6PH8Y7kjpUU9HFrPU4";
@@ -38,6 +40,8 @@ let completadosSesion = 0;
 let pausado = false;
 /** En claude.ai la IA gasta el uso del usuario: la cola arranca solo tras una acción suya. */
 let autorizado = false;
+/** Copia fuera de claude.ai sin clave de API: solo toma fotos y las manda a Claude en un lote. */
+let modoCaptura = false;
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -366,6 +370,7 @@ async function procesar(t: Trabajo) {
 }
 
 function renderCola() {
+  if (modoCaptura) return renderLote();
   const cola = $("#cola");
   const visibles = trabajos.filter((t) => t.estado !== "espera");
   if (!visibles.length) {
@@ -578,7 +583,12 @@ $("#doc-guardar").addEventListener("click", async () => {
   cerrarDocumento();
   autorizado = true;
   pausado = false;
-  aviso(`✔ Documento guardado (${n} página(s)); la IA lo está leyendo…`, 3500);
+  aviso(
+    modoCaptura
+      ? `✔ Documento guardado (${n} página(s)). Cuando termines, descarga el lote para Claude.`
+      : `✔ Documento guardado (${n} página(s)); la IA lo está leyendo…`,
+    3500,
+  );
   procesarCola();
 });
 
@@ -621,7 +631,9 @@ window.addEventListener("drop", (e) => {
   const files = Array.from(e.dataTransfer?.files ?? []);
   const excel = files.find((f) => f.name.toLowerCase().endsWith(".xlsx"));
   if (excel) importarArchivoExcel(excel);
-  const resto = files.filter((f) => f !== excel);
+  const zip = files.find((f) => f.name.toLowerCase().endsWith(".zip"));
+  if (zip && !modoCaptura) importarLote(zip);
+  const resto = files.filter((f) => f !== excel && f !== zip);
   if (dlgDoc.open) resto.forEach(async (f) => agregarPagina(await prepararArchivo(f)));
   else agregarArchivos(resto);
 });
@@ -632,6 +644,135 @@ window.addEventListener("paste", (e) => {
   if (dlgDoc.open) files.forEach(async (f) => agregarPagina(await prepararArchivo(f)));
   else agregarArchivos(files);
 });
+
+// ---------- Lote: fotos tomadas en Vercel -> leídas por Claude ----------
+const docsLote = () => trabajos.filter((t) => t.estado === "pendiente" || t.estado === "error");
+
+function renderLote() {
+  const docs = docsLote();
+  const sinEnviar = docs.filter((d) => !d.exportado).length;
+  const paginas = docs.reduce((n, d) => n + d.fotoIds.length, 0);
+  $("#lote-resumen").textContent = docs.length
+    ? `${docs.length} documento(s), ${paginas} página(s). ${sinEnviar ? `${sinEnviar} sin enviar.` : "Todos enviados."}`
+    : "Todavía no hay documentos. Toca 📷 Nuevo documento para empezar.";
+  $("#lote-lista").innerHTML = docs
+    .map((d, i) => `<div class="lote-doc ${d.exportado ? "enviado" : ""}">
+      ${d.fotoIds[0] ? `<img data-foto="${esc(d.fotoIds[0])}" alt="Primera página" />` : ""}
+      <div class="info"><b>Documento ${i + 1}</b> · ${d.fotoIds.length} página(s)
+        <small>${new Date(d.creado).toLocaleString("es")}${d.exportado ? " · ✔ enviado" : ""}</small></div>
+      <button type="button" data-borrar="${esc(d.id)}" aria-label="Borrar documento ${i + 1}">🗑</button>
+    </div>`)
+    .join("");
+  cargarMiniaturas($("#lote-lista"));
+  const bajar = $<HTMLButtonElement>("#btn-lote-bajar");
+  bajar.disabled = !docs.length;
+  bajar.textContent = sinEnviar || !docs.length ? `📦 Descargar lote para Claude${sinEnviar ? ` (${sinEnviar})` : ""}` : "📦 Descargar de nuevo todo";
+  $("#btn-lote-limpiar").hidden = !docs.some((d) => d.exportado);
+}
+
+async function armarLote(): Promise<{ archivo: File; docs: Trabajo[] } | null> {
+  const todos = docsLote();
+  const docs = todos.some((d) => !d.exportado) ? todos.filter((d) => !d.exportado) : todos;
+  if (!docs.length) { aviso("No hay documentos para enviar."); return null; }
+  aviso("Armando el lote…");
+  const lote = [];
+  for (const d of docs) {
+    const paginas = (await Promise.all(d.fotoIds.map((f) => leerFoto(f)))).filter((b): b is Blob => !!b);
+    lote.push({ id: d.id, nombre: d.nombre, creado: d.creado, paginas });
+  }
+  const blob = await crearLote(lote);
+  const f = new Date();
+  const nombre = `lote_${f.toISOString().slice(0, 10)}_${String(f.getHours()).padStart(2, "0")}${String(f.getMinutes()).padStart(2, "0")}.zip`;
+  return { archivo: new File([blob], nombre, { type: "application/zip" }), docs };
+}
+
+async function marcarEnviados(docs: Trabajo[]) {
+  docs.forEach((d) => (d.exportado = true));
+  await guardarTrabajos(trabajos);
+  renderLote();
+}
+
+$("#btn-lote-bajar").addEventListener("click", async () => {
+  const r = await armarLote();
+  if (!r) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(r.archivo);
+  a.download = r.archivo.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  await marcarEnviados(r.docs);
+  aviso("✔ Lote descargado. Ahora abre la app en Claude y toca 📥 Importar lote.", 6000);
+});
+
+const btnLoteCompartir = $<HTMLButtonElement>("#btn-lote-compartir");
+try {
+  btnLoteCompartir.hidden = !navigator.canShare?.({ files: [new File([""], "x.zip", { type: "application/zip" })] });
+} catch { /* sin soporte */ }
+btnLoteCompartir.addEventListener("click", async () => {
+  const r = await armarLote();
+  if (!r) return;
+  try {
+    await navigator.share({ files: [r.archivo], title: "Lote de documentos" });
+    await marcarEnviados(r.docs);
+  } catch (e) {
+    if ((e as Error).name !== "AbortError") aviso("No se pudo compartir: " + (e as Error).message);
+  }
+});
+
+$("#btn-lote-limpiar").addEventListener("click", async () => {
+  const env = docsLote().filter((d) => d.exportado);
+  if (!(await confirmar(`¿Borrar de este teléfono los ${env.length} documento(s) ya enviados? Asegúrate de haberlos importado en Claude.`, "Borrar", true))) return;
+  trabajos = trabajos.filter((t) => !env.includes(t));
+  await guardarTrabajos(trabajos);
+  await limpiarFotosHuerfanas(registros, trabajos);
+  renderLote();
+});
+
+$("#lote-lista").addEventListener("click", async (ev) => {
+  const id = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-borrar]")?.dataset.borrar;
+  const d = trabajos.find((t) => t.id === id);
+  if (!d) return;
+  if (!(await confirmar(`¿Borrar este documento (${d.fotoIds.length} página(s))?`, "Borrar", true))) return;
+  trabajos = trabajos.filter((t) => t !== d);
+  await guardarTrabajos(trabajos);
+  await limpiarFotosHuerfanas(registros, trabajos);
+  renderLote();
+});
+
+async function importarLote(f: File) {
+  try {
+    const docs = await leerLote(f);
+    const ya = await docsImportados();
+    const nuevos = docs.filter((d) => !ya.has(d.id));
+    for (const d of nuevos) {
+      const fotoIds: string[] = [];
+      for (const b of d.paginas) {
+        const id = uid();
+        await guardarFoto(id, b);
+        fotoIds.push(id);
+      }
+      trabajos.push({ id: uid(), nombre: d.nombre, fotoIds, estado: "pendiente", creado: d.creado });
+    }
+    await guardarTrabajos(trabajos);
+    await marcarImportados(nuevos.map((d) => d.id));
+    const repetidos = docs.length - nuevos.length;
+    if (!nuevos.length) return aviso(`Este lote ya se había importado (${docs.length} documento(s)).`, 5000);
+    autorizado = true;
+    pausado = false;
+    aviso(`✔ ${nuevos.length} documento(s) importados${repetidos ? ` (${repetidos} ya estaban)` : ""}. Claude los está leyendo…`, 5000);
+    procesarCola();
+  } catch (e) {
+    aviso(mensajeDeError(e), 6000);
+  }
+}
+
+$<HTMLInputElement>("#in-lote").addEventListener("change", (ev) => {
+  const input = ev.target as HTMLInputElement;
+  const f = input.files?.[0];
+  input.value = "";
+  if (f) importarLote(f);
+});
+$("#lote-url").textContent = URL_CLAUDE;
 
 // ---------- Ajustes ----------
 const dlgAj = $<HTMLDialogElement>("#dlg-ajustes");
@@ -662,7 +803,9 @@ dlgAj.addEventListener("close", () => {
 
 function pintarModo() {
   const m = $("#modo");
-  if (plataforma.enClaude) {
+  if (modoCaptura) {
+    m.textContent = "📷 Aquí solo se toman las fotos. Luego se envían a la app en Claude, que las lee con tu suscripción.";
+  } else if (plataforma.enClaude) {
     if (!plataforma.sample) m.textContent = "⚠ Tu cuenta no permite que esta app use Claude. Puedes cargar y editar registros a mano.";
     else if (!plataforma.maxImagenes) m.textContent = "⚠ Esta vista de Claude no permite enviar fotos. Ábrela en el navegador o actualiza la app de Claude.";
     else m.textContent = "✔ La IA usa tu cuenta de Claude." + (plataforma.db ? " Los registros se guardan en claude.ai y se ven en todos tus dispositivos." : "");
@@ -700,16 +843,16 @@ function pintarModo() {
   renderTabla();
   if (!plataforma.enClaude) autorizado = true;
   if (!plataforma.enClaude && !ajustes.apiKey) {
-    // Fuera de claude.ai no se puede usar la suscripción: se abre la versión de Claude.
-    // (Quien tenga clave de API puede quedarse aquí abriendo la página con ?clave)
+    // Fuera de claude.ai no se puede usar la suscripción: esta copia solo toma las fotos
+    // y las pasa a la versión de Claude en un lote. (Con ?clave se puede usar una clave de API.)
     if (new URLSearchParams(location.search).has("clave")) abrirAjustes();
-    else {
-      $<HTMLAnchorElement>("#ir-claude-enlace").href = URL_CLAUDE;
-      $("#ir-claude").hidden = false;
-      location.replace(URL_CLAUDE);
-      return;
-    }
+    else modoCaptura = true;
   }
+  $("#panel-lote").hidden = !modoCaptura;
+  $("#panel-registros").hidden = modoCaptura;
+  $("#btn-lote-importar").hidden = modoCaptura;
+  $("#btn-ajustes").hidden = modoCaptura;
+  pintarModo();
   // Documento con páginas a medio tomar (por ejemplo, si el celular cerró la página)
   const enCurso = trabajos.find((t) => t.estado === "espera");
   if (enCurso?.fotoIds.length) {

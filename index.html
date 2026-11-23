@@ -25,7 +25,24 @@
         <div id="cola"></div>
       </section>
 
-      <section class="panel">
+      <!-- Modo captura (copia de Vercel sin IA): documentos fotografiados que se envían a Claude en un lote -->
+      <section id="panel-lote" class="panel" hidden>
+        <h2>Documentos por enviar a Claude</h2>
+        <p id="lote-resumen" class="ayuda"></p>
+        <div id="lote-lista"></div>
+        <div class="barra">
+          <button id="btn-lote-bajar" class="btn primario" type="button">📦 Descargar lote para Claude</button>
+          <button id="btn-lote-compartir" class="btn" type="button" hidden>📤 Compartir lote</button>
+          <button id="btn-lote-limpiar" class="btn" type="button" hidden>Borrar los ya enviados</button>
+        </div>
+        <ol class="pasos">
+          <li>Fotografía cada documento con <b>📷 Nuevo documento</b> (todas sus páginas, luego <b>✔ Guardar</b>).</li>
+          <li>Toca <b>📦 Descargar lote para Claude</b>: se guarda un solo archivo <code>.zip</code> con todos los documentos.</li>
+          <li>Abre la app en Claude (<span id="lote-url"></span>) y toca <b>📥 Importar lote</b>. Claude lee los documentos con tu suscripción y llena el registro.</li>
+        </ol>
+      </section>
+
+      <section id="panel-registros" class="panel">
         <div class="barra">
           <label class="btn" for="in-excel">⬆ Importar Excel</label>
           <input id="in-excel" type="file" accept=".xlsx" hidden />
@@ -49,6 +66,8 @@
 
     <nav id="barra-inferior">
       <button id="btn-nuevo" class="btn grande primario" type="button">📷 Nuevo documento</button>
+      <label id="btn-lote-importar" class="btn grande" for="in-lote" hidden>📥 Importar lote</label>
+      <input id="in-lote" type="file" hidden />
     </nav>
 
     <!-- Documento en curso: se toman todas las páginas y se guarda como UN documento -->
@@ -114,13 +133,6 @@
       <div id="foto-grande"></div>
     </dialog>
 
-    <div id="ir-claude" hidden>
-      <div>
-        <h2>Abriendo en Claude…</h2>
-        <p>Esta app usa tu suscripción de Claude, así que funciona dentro de claude.ai.</p>
-        <p><a id="ir-claude-enlace" class="btn grande primario" href="#">Abrir en Claude</a></p>
-      </div>
-    </div>
     <div id="aviso" role="status"></div>
     <div id="soltar">Suelta las fotos aquí</div>
     <script type="module" src="/src/main.ts"></script>

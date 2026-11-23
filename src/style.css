@@ -133,13 +133,20 @@ dialog.pantalla[open] { display: flex; }
 .doc-pie { display: flex; gap: 8px; align-items: stretch; }
 .doc-pie .btn:first-child { flex: 0 0 auto; }
 #doc-disparar { font-size: 26px; }
+#panel-lote h2 { font-size: 17px; margin: 0 0 4px; }
+#lote-lista { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.lote-doc { display: flex; gap: 10px; align-items: center; border: 1px solid var(--borde); border-radius: 10px; padding: 8px; min-width: 0; }
+.lote-doc img { width: 52px; height: 64px; object-fit: cover; border-radius: 6px; border: 1px solid var(--borde); flex: none; }
+.lote-doc .info { flex: 1; min-width: 0; font-size: 14px; }
+.lote-doc .info small { color: var(--suave); display: block; }
+.lote-doc.enviado { opacity: 0.6; }
+.lote-doc button { flex: none; min-width: 44px; min-height: 40px; border: 1px solid var(--borde); border-radius: 8px; background: var(--superficie); color: var(--texto); cursor: pointer; }
+.pasos { font-size: 14px; color: var(--suave); padding-left: 20px; margin: 12px 0 0; line-height: 1.5; }
+.pasos code { font-size: 13px; }
+#lote-url { overflow-wrap: anywhere; }
 .nota-camara { font-size: 13px; opacity: 0.85; margin: 16px 0 6px; line-height: 1.45; }
 .url-claude { font-size: 13px; user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; margin: 0 0 8px; }
 #sin-camara .btn { color: var(--texto); }
-#ir-claude { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; background: var(--fondo); text-align: center;
-  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-#ir-claude[hidden] { display: none; }
-#ir-claude a { text-decoration: none; display: inline-flex; min-width: 240px; }
 .enlace { text-align: center; color: var(--acento); font-size: 14px; text-decoration: underline; cursor: pointer; padding: 4px; }
 
 /* Diálogos */

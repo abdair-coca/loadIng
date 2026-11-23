@@ -1,14 +1,25 @@
 # Registro de Dictámenes
 
-> **Usar con tu suscripción de Claude (sin clave de API):** usa la versión publicada en claude.ai
-> (https://claude.ai/artifact/Jwyj6PH8Y7kjpUU9HFrPU4)
-> (`npm run build:artifact` genera `dist-artifact/registro-dictamenes.html`, que se publica como artifact).
-> Dentro de claude.ai la IA usa tu cuenta de Claude y los registros se sincronizan entre celular y PC.
-> Fuera de claude.ai (Vercel) la app necesita una clave de API de Anthropic, porque la suscripción
-> solo puede usarse dentro de claude.ai.
+Saca fotos de documentos y Claude llena la planilla **Carrera | N° Dictamen | Descripción**,
+con el mismo formato que `registro_2025.xlsx`. Sin clave de API: usa tu suscripción de Claude.
 
-Saca fotos (o sube PDFs) de documentos y una IA (Claude) llena automáticamente la planilla
-**Carrera | N° Dictamen | Descripción**, con el mismo formato que `registro_2025.xlsx`.
+## Cómo funciona (dos partes)
+
+| | Copia en **Vercel** | App en **claude.ai** |
+|---|---|---|
+| Para qué | Tomar las fotos (cámara en vivo, muchas páginas seguidas) | Leer las fotos con Claude y llenar el registro |
+| IA | No (fuera de claude.ai no se puede usar la suscripción) | Sí, con tu suscripción de Claude |
+| Enlace | tu dominio de Vercel | https://claude.ai/artifact/Jwyj6PH8Y7kjpUU9HFrPU4 |
+
+1. En Vercel: **📷 Nuevo documento** → foto de cada página → **✔ Guardar**. Repite por cada documento.
+2. **📦 Descargar lote para Claude**: un solo `.zip` con todos los documentos (cada uno con sus páginas).
+3. En claude.ai: **📥 Importar lote** → Claude lee cada documento y crea su registro. Importar dos veces el mismo lote no duplica.
+4. Revisa/corrige y **⬇ Descargar Excel**.
+
+La app de claude.ai también puede tomar fotos si se abre en Chrome/Safari (la app de Claude no deja usar la cámara).
+Con `?clave` al final del enlace de Vercel se puede usar una clave de API de Anthropic en lugar del lote.
+
+## Detalles
 
 - **Sin backend**: todo corre en el navegador. La IA se llama directo a la API de Anthropic con tu propia clave.
 - **Los datos persisten** en el navegador (IndexedDB): registros, fotos y la cola pendiente sobreviven a recargas y cierres.

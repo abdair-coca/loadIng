@@ -26,6 +26,8 @@ export interface Trabajo {
   estado: EstadoTrabajo;
   error?: string;
   creado: number;
+  /** Modo captura (Vercel sin IA): ya se descargó en un lote para Claude. */
+  exportado?: boolean;
 }
 
 const store = createStore("registro-dictamenes", "kv");
@@ -44,6 +46,16 @@ export async function cargarTrabajos(): Promise<Trabajo[]> {
 }
 export async function guardarTrabajos(t: Trabajo[]) {
   await set("trabajos", t, store);
+}
+
+/** Ids de documentos de lotes ya importados (para no duplicarlos si se importa dos veces). */
+export async function docsImportados(): Promise<Set<string>> {
+  return new Set((await get<string[]>("lotes-importados", store)) ?? []);
+}
+export async function marcarImportados(ids: string[]) {
+  const s = await docsImportados();
+  ids.forEach((i) => s.add(i));
+  await set("lotes-importados", [...s], store);
 }
 
 export async function guardarFoto(id: string, blob: Blob) {
